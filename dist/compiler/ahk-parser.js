@@ -16,8 +16,9 @@ export class AhkParser {
     constructor(source) {
         this.current = 0;
         const lexer = new AhkLexer(source);
-        this.tokens = lexer.tokenize().filter(token => token.type !== TokenType.WHITESPACE &&
-            token.type !== TokenType.COMMENT);
+        this.tokens = lexer
+            .tokenize()
+            .filter(token => token.type !== TokenType.WHITESPACE && token.type !== TokenType.COMMENT);
     }
     parse() {
         const statements = [];
@@ -38,7 +39,7 @@ export class AhkParser {
             line: 1,
             column: 1,
             start: 0,
-            end: this.tokens.length > 0 ? this.tokens[this.tokens.length - 1].end : 0
+            end: this.tokens.length > 0 ? this.tokens[this.tokens.length - 1].end : 0,
         };
     }
     statement() {
@@ -83,8 +84,10 @@ export class AhkParser {
         const test = this.expression();
         this.consumeNewlines();
         const consequent = [];
-        while (!this.check(TokenType.ELSE) && !this.check(TokenType.ELSEIF) &&
-            !this.isAtEnd() && !this.checkBlockEnd()) {
+        while (!this.check(TokenType.ELSE) &&
+            !this.check(TokenType.ELSEIF) &&
+            !this.isAtEnd() &&
+            !this.checkBlockEnd()) {
             if (this.check(TokenType.NEWLINE)) {
                 this.advance();
                 continue;
@@ -119,7 +122,7 @@ export class AhkParser {
             line: token.line,
             column: token.column,
             start: token.start,
-            end: this.previous().end
+            end: this.previous().end,
         };
     }
     whileStatement() {
@@ -143,7 +146,7 @@ export class AhkParser {
             line: token.line,
             column: token.column,
             start: token.start,
-            end: this.previous().end
+            end: this.previous().end,
         };
     }
     forStatement() {
@@ -168,7 +171,7 @@ export class AhkParser {
             line: token.line,
             column: token.column,
             start: token.start,
-            end: this.previous().end
+            end: this.previous().end,
         };
     }
     loopStatement() {
@@ -196,15 +199,15 @@ export class AhkParser {
             line: token.line,
             column: token.column,
             start: token.start,
-            end: this.previous().end
+            end: this.previous().end,
         };
     }
     classDeclaration() {
         const token = this.previous();
-        const name = this.consume(TokenType.IDENTIFIER, "Expected class name").value;
+        const name = this.consume(TokenType.IDENTIFIER, 'Expected class name').value;
         let superClass;
         if (this.match(TokenType.IDENTIFIER) && this.previous().value.toLowerCase() === 'extends') {
-            superClass = this.consume(TokenType.IDENTIFIER, "Expected superclass name").value;
+            superClass = this.consume(TokenType.IDENTIFIER, 'Expected superclass name').value;
         }
         this.consumeNewlines();
         this.consume(TokenType.LBRACE, "Expected '{' after class declaration");
@@ -228,7 +231,7 @@ export class AhkParser {
             line: token.line,
             column: token.column,
             start: token.start,
-            end: this.previous().end
+            end: this.previous().end,
         };
     }
     functionDeclaration() {
@@ -243,7 +246,7 @@ export class AhkParser {
         const params = [];
         if (!this.check(TokenType.RPAREN)) {
             do {
-                params.push(this.consume(TokenType.IDENTIFIER, "Expected parameter name").value);
+                params.push(this.consume(TokenType.IDENTIFIER, 'Expected parameter name').value);
             } while (this.match(TokenType.COMMA));
         }
         this.consume(TokenType.RPAREN, "Expected ')' after parameters");
@@ -270,7 +273,7 @@ export class AhkParser {
             line: nameToken.line,
             column: nameToken.column,
             start: nameToken.start,
-            end: this.previous().end
+            end: this.previous().end,
         };
     }
     returnStatement() {
@@ -285,7 +288,7 @@ export class AhkParser {
             line: token.line,
             column: token.column,
             start: token.start,
-            end: this.previous().end
+            end: this.previous().end,
         };
     }
     breakStatement() {
@@ -295,7 +298,7 @@ export class AhkParser {
             line: token.line,
             column: token.column,
             start: token.start,
-            end: token.end
+            end: token.end,
         };
     }
     continueStatement() {
@@ -305,7 +308,7 @@ export class AhkParser {
             line: token.line,
             column: token.column,
             start: token.start,
-            end: token.end
+            end: token.end,
         };
     }
     hotkeyStatement() {
@@ -328,7 +331,7 @@ export class AhkParser {
             line: token.line,
             column: token.column,
             start: token.start,
-            end: this.previous().end
+            end: this.previous().end,
         };
     }
     directiveStatement() {
@@ -345,7 +348,7 @@ export class AhkParser {
             line: token.line,
             column: token.column,
             start: token.start,
-            end: this.previous().end
+            end: this.previous().end,
         };
     }
     expressionStatement() {
@@ -356,7 +359,7 @@ export class AhkParser {
             line: expr.line,
             column: expr.column,
             start: expr.start,
-            end: expr.end
+            end: expr.end,
         };
     }
     expression() {
@@ -375,7 +378,7 @@ export class AhkParser {
                 line: expr.line,
                 column: expr.column,
                 start: expr.start,
-                end: right.end
+                end: right.end,
             };
         }
         return expr;
@@ -393,7 +396,7 @@ export class AhkParser {
                 line: expr.line,
                 column: expr.column,
                 start: expr.start,
-                end: right.end
+                end: right.end,
             };
         }
         return expr;
@@ -411,7 +414,7 @@ export class AhkParser {
                 line: expr.line,
                 column: expr.column,
                 start: expr.start,
-                end: right.end
+                end: right.end,
             };
         }
         return expr;
@@ -429,7 +432,7 @@ export class AhkParser {
                 line: expr.line,
                 column: expr.column,
                 start: expr.start,
-                end: right.end
+                end: right.end,
             };
         }
         return expr;
@@ -447,7 +450,7 @@ export class AhkParser {
                 line: expr.line,
                 column: expr.column,
                 start: expr.start,
-                end: right.end
+                end: right.end,
             };
         }
         return expr;
@@ -465,7 +468,7 @@ export class AhkParser {
                 line: expr.line,
                 column: expr.column,
                 start: expr.start,
-                end: right.end
+                end: right.end,
             };
         }
         return expr;
@@ -483,7 +486,7 @@ export class AhkParser {
                 line: expr.line,
                 column: expr.column,
                 start: expr.start,
-                end: right.end
+                end: right.end,
             };
         }
         return expr;
@@ -499,7 +502,7 @@ export class AhkParser {
                 line: this.previous().line,
                 column: this.previous().column,
                 start: this.previous().start,
-                end: right.end
+                end: right.end,
             };
         }
         return this.call();
@@ -522,12 +525,12 @@ export class AhkParser {
                         line: name.line,
                         column: name.column,
                         start: name.start,
-                        end: name.end
+                        end: name.end,
                     },
                     line: expr.line,
                     column: expr.column,
                     start: expr.start,
-                    end: name.end
+                    end: name.end,
                 };
             }
             else {
@@ -551,7 +554,7 @@ export class AhkParser {
             line: callee.line,
             column: callee.column,
             start: callee.start,
-            end: paren.end
+            end: paren.end,
         };
     }
     primary() {
@@ -564,7 +567,7 @@ export class AhkParser {
                 line: token.line,
                 column: token.column,
                 start: token.start,
-                end: token.end
+                end: token.end,
             };
         }
         if (this.match(TokenType.FALSE)) {
@@ -576,7 +579,7 @@ export class AhkParser {
                 line: token.line,
                 column: token.column,
                 start: token.start,
-                end: token.end
+                end: token.end,
             };
         }
         if (this.match(TokenType.NULL)) {
@@ -588,7 +591,7 @@ export class AhkParser {
                 line: token.line,
                 column: token.column,
                 start: token.start,
-                end: token.end
+                end: token.end,
             };
         }
         if (this.match(TokenType.NUMBER)) {
@@ -600,7 +603,7 @@ export class AhkParser {
                 line: token.line,
                 column: token.column,
                 start: token.start,
-                end: token.end
+                end: token.end,
             };
         }
         if (this.match(TokenType.STRING)) {
@@ -612,7 +615,7 @@ export class AhkParser {
                 line: token.line,
                 column: token.column,
                 start: token.start,
-                end: token.end
+                end: token.end,
             };
         }
         if (this.match(TokenType.IDENTIFIER, TokenType.BUILTIN_VAR)) {
@@ -623,7 +626,7 @@ export class AhkParser {
                 line: token.line,
                 column: token.column,
                 start: token.start,
-                end: token.end
+                end: token.end,
             };
         }
         if (this.match(TokenType.LPAREN)) {
@@ -642,9 +645,7 @@ export class AhkParser {
         return this.check(TokenType.IDENTIFIER) && this.checkAt(1, TokenType.LPAREN);
     }
     checkBlockEnd() {
-        return this.check(TokenType.RBRACE) ||
-            this.check(TokenType.ELSE) ||
-            this.check(TokenType.ELSEIF);
+        return (this.check(TokenType.RBRACE) || this.check(TokenType.ELSE) || this.check(TokenType.ELSEIF));
     }
     consumeNewlines() {
         while (this.match(TokenType.NEWLINE)) {

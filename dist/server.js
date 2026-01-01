@@ -12,15 +12,15 @@ import { TaskManager } from './core/task-manager.js';
 import { logDebugEvent, logDebugError } from './debug-journal.js';
 import { getUnifiedLogger } from './core/unified-logger.js';
 // Import tool classes and definitions
-import { AhkDiagnosticsTool } from './tools/ahk-analyze-diagnostics.js';
+import { AhkDiagnosticsTool, } from './tools/ahk-analyze-diagnostics.js';
 import { AhkSummaryTool } from './tools/ahk-analyze-summary.js';
-import { AhkPromptsTool, getPromptCatalog } from './tools/ahk-docs-prompts.js';
+import { AhkPromptsTool, getPromptCatalog, } from './tools/ahk-docs-prompts.js';
 import { AhkAnalyzeTool } from './tools/ahk-analyze-code.js';
-import { AhkContextInjectorTool } from './tools/ahk-docs-context.js';
-import { AhkSamplingEnhancer } from './tools/ahk-docs-samples.js';
+import { AhkContextInjectorTool, } from './tools/ahk-docs-context.js';
+import { AhkSamplingEnhancer, } from './tools/ahk-docs-samples.js';
 import { AhkDebugAgentTool } from './tools/ahk-run-debug.js';
 import { AhkDocSearchTool } from './tools/ahk-docs-search.js';
-import { AhkVSCodeProblemsTool } from './tools/ahk-analyze-vscode.js';
+import { AhkVSCodeProblemsTool, } from './tools/ahk-analyze-vscode.js';
 import { AhkRunTool } from './tools/ahk-run-script.js';
 import { AhkRecentTool } from './tools/ahk-file-recent.js';
 import { AhkConfigTool } from './tools/ahk-system-config.js';
@@ -38,15 +38,16 @@ import { AhkVSCodeOpenTool } from './tools/ahk-vscode-open.js';
 import { AhkAlphaTool } from './tools/ahk-system-alpha.js';
 import { AhkFileEditorTool } from './tools/ahk-file-edit-advanced.js';
 import { AhkSmallEditTool } from './tools/ahk-file-edit-small.js';
-import { AhkSmartOrchestratorTool } from './tools/ahk-smart-orchestrator.js';
+import { AhkSmartOrchestratorTool, } from './tools/ahk-smart-orchestrator.js';
 import { AhkFileCreateTool } from './tools/ahk-file-create.js';
 import { AhkAnalyticsTool } from './tools/ahk-system-analytics.js';
-import { AhkTestInteractiveTool } from './tools/ahk-test-interactive.js';
+import { AhkTestInteractiveTool, } from './tools/ahk-test-interactive.js';
 import { AhkTraceViewerTool } from './tools/ahk-trace-viewer.js';
 import { AhkLintTool } from './tools/ahk-lint.js';
 import { AhkToolsSearchTool } from './tools/ahk-tools-search.js';
-import { AhkWorkflowAnalyzeFixRunTool } from './tools/ahk-workflow-analyze-fix-run.js';
-import { AhkThqbyDocumentSymbolsTool } from './tools/ahk-thqby-document-symbols.js';
+import { AhkWorkflowAnalyzeFixRunTool, } from './tools/ahk-workflow-analyze-fix-run.js';
+import { AhkThqbyDocumentSymbolsTool, } from './tools/ahk-thqby-document-symbols.js';
+import { AhkCloudAhkValidateTool, } from './tools/ahk-cloudahk-validate.js';
 import { autoDetect, getActiveFilePath } from './core/active-file.js';
 import { toolSettings } from './core/tool-settings.js';
 import { configManager } from './core/path-converter-config.js';
@@ -73,9 +74,9 @@ export class AutoHotkeyMcpServer {
                     cancel: {},
                     requests: {
                         tools: {
-                            call: {}
-                        }
-                    }
+                            call: {},
+                        },
+                    },
                 },
             },
         });
@@ -113,6 +114,7 @@ export class AutoHotkeyMcpServer {
         this.ahkToolsSearchToolInstance = new AhkToolsSearchTool();
         this.ahkThqbyDocumentSymbolsToolInstance = new AhkThqbyDocumentSymbolsTool();
         this.ahkLintToolInstance = new AhkLintTool();
+        this.ahkCloudAhkValidateToolInstance = new AhkCloudAhkValidateTool();
         this.toolRegistry = new ToolRegistry(this);
         this.taskManager = new TaskManager();
         // Initialize workflow tool with dependencies (must be after other tools are initialized)
@@ -148,15 +150,18 @@ export class AutoHotkeyMcpServer {
             logger.debug('Listing available AutoHotkey tools');
             // Check if we're in SSE mode (for ChatGPT compatibility)
             const useSSE = envConfig.useSSEMode();
-            logDebugEvent('tools.list', { status: 'start', message: useSSE ? 'Including SSE-specific tools' : 'Standard tool listing' });
+            logDebugEvent('tools.list', {
+                status: 'start',
+                message: useSSE ? 'Including SSE-specific tools' : 'Standard tool listing',
+            });
             const standardTools = getStandardToolDefinitions();
-            const metadataIndex = new Map(getToolMetadata().map((entry) => [entry.definition.name, entry]));
+            const metadataIndex = new Map(getToolMetadata().map(entry => [entry.definition.name, entry]));
             const activeFileAwareNames = new Set(getToolMetadata()
-                .filter((entry) => entry.category === 'file')
-                .map((entry) => entry.definition.name));
+                .filter(entry => entry.category === 'file')
+                .map(entry => entry.definition.name));
             const activeFilePath = getActiveFilePath();
             const activeFileNote = `\n\n📎 Active File: ${activeFilePath ?? 'Not set. Use AHK_File_Active to select a target.'}`;
-            const contextualTools = standardTools.map((tool) => {
+            const contextualTools = standardTools.map(tool => {
                 if (!activeFileAwareNames.has(tool.name)) {
                     return tool;
                 }
@@ -164,42 +169,48 @@ export class AutoHotkeyMcpServer {
                 const suffix = metadata?.category === 'file' ? activeFileNote : '';
                 return {
                     ...tool,
-                    description: `${tool.description}${suffix}`
+                    description: `${tool.description}${suffix}`,
                 };
             });
             // Add ChatGPT-compatible tools when in SSE mode
-            const chatGPTTools = useSSE ? [
-                {
-                    name: 'search',
-                    description: 'Search AutoHotkey v2 documentation and code examples',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            query: {
-                                type: 'string',
-                                description: 'Search query for AutoHotkey documentation'
-                            }
+            const chatGPTTools = useSSE
+                ? [
+                    {
+                        name: 'search',
+                        description: 'Search AutoHotkey v2 documentation and code examples',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                query: {
+                                    type: 'string',
+                                    description: 'Search query for AutoHotkey documentation',
+                                },
+                            },
+                            required: ['query'],
                         },
-                        required: ['query']
-                    }
-                },
-                {
-                    name: 'fetch',
-                    description: 'Fetch detailed AutoHotkey documentation for a specific item',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            id: {
-                                type: 'string',
-                                description: 'Unique identifier for the AutoHotkey documentation item'
-                            }
+                    },
+                    {
+                        name: 'fetch',
+                        description: 'Fetch detailed AutoHotkey documentation for a specific item',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                id: {
+                                    type: 'string',
+                                    description: 'Unique identifier for the AutoHotkey documentation item',
+                                },
+                            },
+                            required: ['id'],
                         },
-                        required: ['id']
-                    }
-                }
-            ] : [];
+                    },
+                ]
+                : [];
             const tools = [...contextualTools, ...chatGPTTools];
-            logDebugEvent('tools.list', { status: 'success', message: `Returned ${tools.length} tools`, details: { mode: useSSE ? 'sse' : 'stdio' } });
+            logDebugEvent('tools.list', {
+                status: 'success',
+                message: `Returned ${tools.length} tools`,
+                details: { mode: useSSE ? 'sse' : 'stdio' },
+            });
             return {
                 tools,
             };
@@ -226,7 +237,9 @@ export class AutoHotkeyMcpServer {
             }
             try {
                 if (taskRequest) {
-                    const ttl = typeof taskRequest.ttl === 'number' && Number.isFinite(taskRequest.ttl) && taskRequest.ttl > 0
+                    const ttl = typeof taskRequest.ttl === 'number' &&
+                        Number.isFinite(taskRequest.ttl) &&
+                        taskRequest.ttl > 0
                         ? taskRequest.ttl
                         : undefined;
                     const pollInterval = envConfig.getTaskPollIntervalMs();
@@ -235,7 +248,7 @@ export class AutoHotkeyMcpServer {
                         toolName: name,
                         ttl,
                         pollInterval,
-                        execute: () => this.executeToolWithTimeout(name, args, taskTimeoutMs)
+                        execute: () => this.executeToolWithTimeout(name, args, taskTimeoutMs),
                     });
                     // Unified logging: task queued (execution is async)
                     unifiedLog.toolEnd(callId, {
@@ -247,9 +260,10 @@ export class AutoHotkeyMcpServer {
                 const result = await tracer.trace(name, async (span) => {
                     // Add tool metadata to span
                     span.attributes.tool = name;
-                    span.attributes.argCount = args && typeof args === 'object'
-                        ? Object.keys(args).length
-                        : 0;
+                    span.attributes.argCount =
+                        args && typeof args === 'object'
+                            ? Object.keys(args).length
+                            : 0;
                     // Execute the tool
                     const toolResult = await this.executeToolWithTimeout(name, args, toolTimeoutMs);
                     // Add result metadata to span
@@ -269,7 +283,7 @@ export class AutoHotkeyMcpServer {
                 const message = error instanceof Error ? error.message : String(error);
                 return {
                     content: [{ type: 'text', text: `Error: ${message}` }],
-                    isError: true
+                    isError: true,
                 };
             }
         });
@@ -282,27 +296,29 @@ export class AutoHotkeyMcpServer {
         const TaskStatusSchema = z.enum(taskStatusValues);
         const TaskListRequestSchema = z.object({
             method: z.literal('tasks/list'),
-            params: z.object({
-                status: TaskStatusSchema.optional()
-            }).optional()
+            params: z
+                .object({
+                status: TaskStatusSchema.optional(),
+            })
+                .optional(),
         });
         const TaskGetRequestSchema = z.object({
             method: z.literal('tasks/get'),
             params: z.object({
-                taskId: z.string()
-            })
+                taskId: z.string(),
+            }),
         });
         const TaskResultRequestSchema = z.object({
             method: z.literal('tasks/result'),
             params: z.object({
-                taskId: z.string()
-            })
+                taskId: z.string(),
+            }),
         });
         const TaskCancelRequestSchema = z.object({
             method: z.literal('tasks/cancel'),
             params: z.object({
-                taskId: z.string()
-            })
+                taskId: z.string(),
+            }),
         });
         this.server.setRequestHandler(TaskListRequestSchema, async (request) => {
             const status = request.params?.status;
@@ -334,11 +350,11 @@ export class AutoHotkeyMcpServer {
             const response = outcome.result ?? createErrorResponse(outcome.message || 'Task result unavailable');
             const meta = {
                 ...response._meta,
-                'io.modelcontextprotocol/related-task': { taskId }
+                'io.modelcontextprotocol/related-task': { taskId },
             };
             return {
                 ...response,
-                _meta: meta
+                _meta: meta,
             };
         });
     }
@@ -353,10 +369,7 @@ export class AutoHotkeyMcpServer {
             }, timeoutMs);
         });
         try {
-            return await Promise.race([
-                this.toolRegistry.executeTool(toolName, args),
-                timeoutPromise
-            ]);
+            return await Promise.race([this.toolRegistry.executeTool(toolName, args), timeoutPromise]);
         }
         finally {
             if (timeoutId) {
@@ -373,28 +386,31 @@ export class AutoHotkeyMcpServer {
             logger.debug('Listing available AutoHotkey prompts');
             logDebugEvent('prompts.list', { status: 'start', message: 'Gathering prompt catalog' });
             const prompts = await getPromptCatalog();
-            const promptList = prompts.map((prompt) => {
+            const promptList = prompts.map(prompt => {
                 const description = prompt.source === 'module' && prompt.module
                     ? `AutoHotkey v2 module prompt from ${prompt.module}`
                     : `AutoHotkey v2: ${prompt.title}`;
                 return {
                     name: this.createPromptName(prompt.slug ?? prompt.title),
                     description,
-                    arguments: []
+                    arguments: [],
                 };
             });
-            logDebugEvent('prompts.list', { status: 'success', message: `Returned ${promptList.length} prompts` });
+            logDebugEvent('prompts.list', {
+                status: 'success',
+                message: `Returned ${promptList.length} prompts`,
+            });
             return {
                 prompts: promptList,
             };
         });
-        // Get prompt handler  
+        // Get prompt handler
         this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
             const { name } = request.params;
             logger.info(`Getting prompt: ${name}`);
             logDebugEvent('prompts.get', { status: 'start', message: name });
             const prompts = await getPromptCatalog();
-            const prompt = prompts.find((p) => this.createPromptName(p.slug ?? p.title) === name);
+            const prompt = prompts.find(p => this.createPromptName(p.slug ?? p.title) === name);
             if (!prompt) {
                 logDebugEvent('prompts.get', { status: 'error', message: `Prompt not found: ${name}` });
                 throw new Error(`Prompt not found: ${name}`);
@@ -407,10 +423,10 @@ export class AutoHotkeyMcpServer {
                         role: 'user',
                         content: {
                             type: 'text',
-                            text: prompt.body
-                        }
-                    }
-                ]
+                            text: prompt.body,
+                        },
+                    },
+                ],
             };
         });
     }
@@ -446,76 +462,82 @@ export class AutoHotkeyMcpServer {
         // List resources handler
         this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
             logger.debug('Listing available AutoHotkey resources');
-            logDebugEvent('resources.list', { status: 'start', message: 'Enumerating exposed resources' });
+            logDebugEvent('resources.list', {
+                status: 'start',
+                message: 'Enumerating exposed resources',
+            });
             const resources = [
                 {
                     uri: 'ahk://context/auto',
                     name: 'AutoHotkey Auto-Context',
                     description: 'Automatically provides relevant AutoHotkey documentation based on detected keywords',
-                    mimeType: 'text/markdown'
+                    mimeType: 'text/markdown',
                 },
                 {
                     uri: 'ahk://docs/functions',
                     name: 'AutoHotkey Functions Reference',
                     description: 'Complete reference of AutoHotkey v2 built-in functions',
-                    mimeType: 'application/json'
+                    mimeType: 'application/json',
                 },
                 {
                     uri: 'ahk://docs/variables',
                     name: 'AutoHotkey Variables Reference',
                     description: 'Complete reference of AutoHotkey v2 built-in variables',
-                    mimeType: 'application/json'
+                    mimeType: 'application/json',
                 },
                 {
                     uri: 'ahk://docs/classes',
                     name: 'AutoHotkey Classes Reference',
                     description: 'Complete reference of AutoHotkey v2 built-in classes',
-                    mimeType: 'application/json'
+                    mimeType: 'application/json',
                 },
                 {
                     uri: 'ahk://docs/methods',
                     name: 'AutoHotkey Methods Reference',
                     description: 'Complete reference of AutoHotkey v2 built-in methods',
-                    mimeType: 'application/json'
+                    mimeType: 'application/json',
                 },
                 {
                     uri: 'ahk://templates/file-system-watcher',
                     name: 'File System Watcher Template',
                     description: 'AutoHotkey v2 script template for monitoring file system changes',
-                    mimeType: 'text/plain'
+                    mimeType: 'text/plain',
                 },
                 {
                     uri: 'ahk://templates/clipboard-manager',
                     name: 'Clipboard Manager Template',
                     description: 'AutoHotkey v2 script template for clipboard management',
-                    mimeType: 'text/plain'
+                    mimeType: 'text/plain',
                 },
                 {
                     uri: 'ahk://templates/cpu-monitor',
                     name: 'CPU Monitor Template',
                     description: 'AutoHotkey v2 script template for system monitoring',
-                    mimeType: 'text/plain'
+                    mimeType: 'text/plain',
                 },
                 {
                     uri: 'ahk://templates/hotkey-toggle',
                     name: 'Hotkey Toggle Template',
                     description: 'AutoHotkey v2 script template for hotkey management',
-                    mimeType: 'text/plain'
+                    mimeType: 'text/plain',
                 },
                 {
                     uri: 'ahk://system/clipboard',
                     name: 'Live Clipboard Content',
                     description: 'Real-time clipboard content (read-only)',
-                    mimeType: 'text/plain'
+                    mimeType: 'text/plain',
                 },
                 {
                     uri: 'ahk://system/info',
                     name: 'System Information',
                     description: 'Current system information and AutoHotkey environment',
-                    mimeType: 'application/json'
-                }
+                    mimeType: 'application/json',
+                },
             ];
-            logDebugEvent('resources.list', { status: 'success', message: `Returned ${resources.length} resources` });
+            logDebugEvent('resources.list', {
+                status: 'success',
+                message: `Returned ${resources.length} resources`,
+            });
             return {
                 resources,
             };
@@ -529,76 +551,104 @@ export class AutoHotkeyMcpServer {
                 return baseDetails ? { ...baseDetails, ...(details ?? {}) } : details;
             };
             logger.info(`Reading resource: ${normalizedUri}`);
-            logDebugEvent('resources.read', { status: 'start', message: normalizedUri, details: mergeDetails() });
+            logDebugEvent('resources.read', {
+                status: 'start',
+                message: normalizedUri,
+                details: mergeDetails(),
+            });
             if (normalizedUri === 'ahk://context/auto') {
                 // This would normally be triggered by analyzing user input
                 // For now, return a placeholder
-                logDebugEvent('resources.read', { status: 'success', message: normalizedUri, details: mergeDetails({ kind: 'auto-context' }) });
+                logDebugEvent('resources.read', {
+                    status: 'success',
+                    message: normalizedUri,
+                    details: mergeDetails({ kind: 'auto-context' }),
+                });
                 return {
                     contents: [
                         {
                             uri,
                             mimeType: 'text/markdown',
-                            text: '## 🎯 AutoHotkey Context Available\n\nUse the `AHK_Context_Injector` tool to analyze your prompts and get relevant AutoHotkey documentation automatically injected.'
-                        }
-                    ]
+                            text: '## 🎯 AutoHotkey Context Available\n\nUse the `AHK_Context_Injector` tool to analyze your prompts and get relevant AutoHotkey documentation automatically injected.',
+                        },
+                    ],
                 };
             }
             if (normalizedUri === 'ahk://docs/functions') {
                 const ahkIndex = getAhkIndex();
-                logDebugEvent('resources.read', { status: 'success', message: normalizedUri, details: mergeDetails({ kind: 'functions' }) });
+                logDebugEvent('resources.read', {
+                    status: 'success',
+                    message: normalizedUri,
+                    details: mergeDetails({ kind: 'functions' }),
+                });
                 return {
                     contents: [
                         {
                             uri,
                             mimeType: 'application/json',
-                            text: JSON.stringify(ahkIndex?.functions || [], null, 2)
-                        }
-                    ]
+                            text: JSON.stringify(ahkIndex?.functions || [], null, 2),
+                        },
+                    ],
                 };
             }
             if (normalizedUri === 'ahk://docs/variables') {
                 const ahkIndex = getAhkIndex();
-                logDebugEvent('resources.read', { status: 'success', message: normalizedUri, details: mergeDetails({ kind: 'variables' }) });
+                logDebugEvent('resources.read', {
+                    status: 'success',
+                    message: normalizedUri,
+                    details: mergeDetails({ kind: 'variables' }),
+                });
                 return {
                     contents: [
                         {
                             uri,
                             mimeType: 'application/json',
-                            text: JSON.stringify(ahkIndex?.variables || [], null, 2)
-                        }
-                    ]
+                            text: JSON.stringify(ahkIndex?.variables || [], null, 2),
+                        },
+                    ],
                 };
             }
             if (normalizedUri === 'ahk://docs/classes') {
                 const ahkIndex = getAhkIndex();
-                logDebugEvent('resources.read', { status: 'success', message: normalizedUri, details: mergeDetails({ kind: 'classes' }) });
+                logDebugEvent('resources.read', {
+                    status: 'success',
+                    message: normalizedUri,
+                    details: mergeDetails({ kind: 'classes' }),
+                });
                 return {
                     contents: [
                         {
                             uri,
                             mimeType: 'application/json',
-                            text: JSON.stringify(ahkIndex?.classes || [], null, 2)
-                        }
-                    ]
+                            text: JSON.stringify(ahkIndex?.classes || [], null, 2),
+                        },
+                    ],
                 };
             }
             if (normalizedUri === 'ahk://docs/methods') {
                 const ahkIndex = getAhkIndex();
-                logDebugEvent('resources.read', { status: 'success', message: normalizedUri, details: mergeDetails({ kind: 'methods' }) });
+                logDebugEvent('resources.read', {
+                    status: 'success',
+                    message: normalizedUri,
+                    details: mergeDetails({ kind: 'methods' }),
+                });
                 return {
                     contents: [
                         {
                             uri,
                             mimeType: 'application/json',
-                            text: JSON.stringify(ahkIndex?.methods || [], null, 2)
-                        }
-                    ]
+                            text: JSON.stringify(ahkIndex?.methods || [], null, 2),
+                        },
+                    ],
                 };
             }
             // Script templates
             if (normalizedUri === 'ahk://templates/file-system-watcher') {
-                logDebugEvent('resources.read', { status: 'success', message: normalizedUri, details: mergeDetails({ kind: 'template', name: 'file-system-watcher' }) });
+                logDebugEvent('resources.read', {
+                    status: 'success',
+                    message: normalizedUri,
+                    details: mergeDetails({ kind: 'template', name: 'file-system-watcher' }),
+                });
                 return {
                     contents: [
                         {
@@ -660,13 +710,17 @@ class FileSystemWatcher {
 ;     ToolTip(action ": " file)
 ;     SetTimer(() => ToolTip(), -2000)
 ; })
-`
-                        }
-                    ]
+`,
+                        },
+                    ],
                 };
             }
             if (normalizedUri === 'ahk://templates/clipboard-manager') {
-                logDebugEvent('resources.read', { status: 'success', message: normalizedUri, details: mergeDetails({ kind: 'template', name: 'clipboard-manager' }) });
+                logDebugEvent('resources.read', {
+                    status: 'success',
+                    message: normalizedUri,
+                    details: mergeDetails({ kind: 'template', name: 'clipboard-manager' }),
+                });
                 return {
                     contents: [
                         {
@@ -731,13 +785,17 @@ class ClipboardManager {
 
 ; Create and show clipboard manager
 clipManager := ClipboardManager()
-`
-                        }
-                    ]
+`,
+                        },
+                    ],
                 };
             }
             if (normalizedUri === 'ahk://templates/cpu-monitor') {
-                logDebugEvent('resources.read', { status: 'success', message: normalizedUri, details: mergeDetails({ kind: 'template', name: 'cpu-monitor' }) });
+                logDebugEvent('resources.read', {
+                    status: 'success',
+                    message: normalizedUri,
+                    details: mergeDetails({ kind: 'template', name: 'cpu-monitor' }),
+                });
                 return {
                     contents: [
                         {
@@ -791,13 +849,17 @@ class CPUMonitor {
 
 ; Start CPU monitor
 cpuMonitor := CPUMonitor()
-`
-                        }
-                    ]
+`,
+                        },
+                    ],
                 };
             }
             if (normalizedUri === 'ahk://templates/hotkey-toggle') {
-                logDebugEvent('resources.read', { status: 'success', message: normalizedUri, details: mergeDetails({ kind: 'template', name: 'hotkey-toggle' }) });
+                logDebugEvent('resources.read', {
+                    status: 'success',
+                    message: normalizedUri,
+                    details: mergeDetails({ kind: 'template', name: 'hotkey-toggle' }),
+                });
                 return {
                     contents: [
                         {
@@ -893,29 +955,33 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
 
 ; List all hotkeys
 ^F12::hkManager.ListHotkeys()
-`
-                        }
-                    ]
+`,
+                        },
+                    ],
                 };
             }
             if (normalizedUri === 'ahk://system/clipboard') {
-                logDebugEvent('resources.read', { status: 'success', message: normalizedUri, details: mergeDetails({ kind: 'system' }) });
+                logDebugEvent('resources.read', {
+                    status: 'success',
+                    message: normalizedUri,
+                    details: mergeDetails({ kind: 'system' }),
+                });
                 return {
                     contents: [
                         {
                             uri,
                             mimeType: 'text/plain',
-                            text: "(Live clipboard access not available in MCP server context)\nUse AutoHotkey scripts with A_Clipboard variable to access clipboard content."
-                        }
-                    ]
+                            text: '(Live clipboard access not available in MCP server context)\nUse AutoHotkey scripts with A_Clipboard variable to access clipboard content.',
+                        },
+                    ],
                 };
             }
             if (normalizedUri === 'ahk://system/info') {
                 const systemInfo = {
-                    autohotkeyVersion: "v2.0+",
-                    operatingSystem: "Windows",
-                    computerName: "Unknown",
-                    userName: "Unknown",
+                    autohotkeyVersion: 'v2.0+',
+                    operatingSystem: 'Windows',
+                    computerName: 'Unknown',
+                    userName: 'Unknown',
                     timestamp: new Date().toISOString(),
                     processId: process.pid,
                     workingDirectory: process.cwd(),
@@ -923,17 +989,21 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
                     platform: process.platform,
                     arch: process.arch,
                     memoryUsage: process.memoryUsage(),
-                    uptime: process.uptime()
+                    uptime: process.uptime(),
                 };
-                logDebugEvent('resources.read', { status: 'success', message: normalizedUri, details: mergeDetails({ kind: 'system-info' }) });
+                logDebugEvent('resources.read', {
+                    status: 'success',
+                    message: normalizedUri,
+                    details: mergeDetails({ kind: 'system-info' }),
+                });
                 return {
                     contents: [
                         {
                             uri,
                             mimeType: 'application/json',
-                            text: JSON.stringify(systemInfo, null, 2)
-                        }
-                    ]
+                            text: JSON.stringify(systemInfo, null, 2),
+                        },
+                    ],
                 };
             }
             logDebugEvent('resources.read', { status: 'error', message: `Resource not found: ${uri}` });
@@ -948,57 +1018,67 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
         // Documentation resources
         if (normalizedUri === 'ahk://docs/functions') {
             return {
-                contents: [{
+                contents: [
+                    {
                         uri: originalUri,
                         mimeType: 'application/json',
-                        text: JSON.stringify(ahkIndex?.functions || [], null, 2)
-                    }]
+                        text: JSON.stringify(ahkIndex?.functions || [], null, 2),
+                    },
+                ],
             };
         }
         if (normalizedUri === 'ahk://docs/variables') {
             return {
-                contents: [{
+                contents: [
+                    {
                         uri: originalUri,
                         mimeType: 'application/json',
-                        text: JSON.stringify(ahkIndex?.variables || [], null, 2)
-                    }]
+                        text: JSON.stringify(ahkIndex?.variables || [], null, 2),
+                    },
+                ],
             };
         }
         if (normalizedUri === 'ahk://docs/classes') {
             return {
-                contents: [{
+                contents: [
+                    {
                         uri: originalUri,
                         mimeType: 'application/json',
-                        text: JSON.stringify(ahkIndex?.classes || [], null, 2)
-                    }]
+                        text: JSON.stringify(ahkIndex?.classes || [], null, 2),
+                    },
+                ],
             };
         }
         if (normalizedUri === 'ahk://docs/methods') {
             return {
-                contents: [{
+                contents: [
+                    {
                         uri: originalUri,
                         mimeType: 'application/json',
-                        text: JSON.stringify(ahkIndex?.methods || [], null, 2)
-                    }]
+                        text: JSON.stringify(ahkIndex?.methods || [], null, 2),
+                    },
+                ],
             };
         }
         // Context resources
         if (normalizedUri === 'ahk://context/auto') {
             return {
-                contents: [{
+                contents: [
+                    {
                         uri: originalUri,
                         mimeType: 'text/markdown',
-                        text: '## 🎯 AutoHotkey Context Available\n\nUse the `AHK_Context_Injector` tool to analyze your prompts and get relevant AutoHotkey documentation automatically injected.'
-                    }]
+                        text: '## 🎯 AutoHotkey Context Available\n\nUse the `AHK_Context_Injector` tool to analyze your prompts and get relevant AutoHotkey documentation automatically injected.',
+                    },
+                ],
             };
         }
         // System resources
         if (normalizedUri === 'ahk://system/info') {
             const systemInfo = {
-                autohotkeyVersion: "v2.0+",
-                operatingSystem: "Windows",
-                computerName: "Unknown",
-                userName: "Unknown",
+                autohotkeyVersion: 'v2.0+',
+                operatingSystem: 'Windows',
+                computerName: 'Unknown',
+                userName: 'Unknown',
                 timestamp: new Date().toISOString(),
                 processId: process.pid,
                 workingDirectory: process.cwd(),
@@ -1006,23 +1086,27 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
                 platform: process.platform,
                 arch: process.arch,
                 memoryUsage: process.memoryUsage(),
-                uptime: process.uptime()
+                uptime: process.uptime(),
             };
             return {
-                contents: [{
+                contents: [
+                    {
                         uri: originalUri,
                         mimeType: 'application/json',
-                        text: JSON.stringify(systemInfo, null, 2)
-                    }]
+                        text: JSON.stringify(systemInfo, null, 2),
+                    },
+                ],
             };
         }
         if (normalizedUri === 'ahk://system/clipboard') {
             return {
-                contents: [{
+                contents: [
+                    {
                         uri: originalUri,
                         mimeType: 'text/plain',
-                        text: "(Live clipboard access not available in MCP server context)\nUse AutoHotkey scripts with A_Clipboard variable to access clipboard content."
-                    }]
+                        text: '(Live clipboard access not available in MCP server context)\nUse AutoHotkey scripts with A_Clipboard variable to access clipboard content.',
+                    },
+                ],
             };
         }
         // Template resources
@@ -1030,16 +1114,18 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
             'file-system-watcher': this.getFileSystemWatcherTemplate(),
             'clipboard-manager': this.getClipboardManagerTemplate(),
             'cpu-monitor': this.getCpuMonitorTemplate(),
-            'hotkey-toggle': this.getHotkeyToggleTemplate()
+            'hotkey-toggle': this.getHotkeyToggleTemplate(),
         };
         for (const [name, content] of Object.entries(templates)) {
             if (normalizedUri === `ahk://templates/${name}`) {
                 return {
-                    contents: [{
+                    contents: [
+                        {
                             uri: originalUri,
                             mimeType: 'text/plain',
-                            text: content
-                        }]
+                            text: content,
+                        },
+                    ],
                 };
             }
         }
@@ -1360,11 +1446,17 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
     async initialize() {
         try {
             logger.info('Initializing AutoHotkey MCP Server...');
-            logDebugEvent('server.initialize', { status: 'start', message: 'Loading AutoHotkey documentation' });
+            logDebugEvent('server.initialize', {
+                status: 'start',
+                message: 'Loading AutoHotkey documentation',
+            });
             // Load AutoHotkey documentation data
             await initializeDataLoader();
             logger.info('AutoHotkey MCP Server initialized successfully');
-            logDebugEvent('server.initialize', { status: 'success', message: 'Documentation cache ready' });
+            logDebugEvent('server.initialize', {
+                status: 'success',
+                message: 'Documentation cache ready',
+            });
         }
         catch (error) {
             logger.error('Failed to initialize AutoHotkey MCP Server:', error);
@@ -1390,7 +1482,10 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
             const useSSE = envConfig.useSSEMode();
             if (useSSE) {
                 const port = envConfig.getPort();
-                logDebugEvent('server.start', { status: 'start', message: `Launching SSE transport on port ${port}` });
+                logDebugEvent('server.start', {
+                    status: 'start',
+                    message: `Launching SSE transport on port ${port}`,
+                });
                 // Import express for SSE transport
                 const express = await import('express');
                 const app = express.default();
@@ -1414,7 +1509,7 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
                     if (cleaned > 0) {
                         logDebugEvent('transport.sse', {
                             status: 'info',
-                            message: `Cleaned up ${cleaned} stale sessions, ${activeTransports.size} active`
+                            message: `Cleaned up ${cleaned} stale sessions, ${activeTransports.size} active`,
                         });
                     }
                 }, CLEANUP_INTERVAL_MS);
@@ -1437,23 +1532,38 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
                         activeTransports.set(sessionId, {
                             transport,
                             createdAt: now,
-                            lastActivity: now
+                            lastActivity: now,
                         });
-                        logDebugEvent('transport.sse', { status: 'start', message: `Session ${sessionId} connected (${activeTransports.size} active)` });
+                        logDebugEvent('transport.sse', {
+                            status: 'start',
+                            message: `Session ${sessionId} connected (${activeTransports.size} active)`,
+                        });
                         // Connect MCP server to this transport
-                        this.server.connect(transport).then(() => {
+                        this.server
+                            .connect(transport)
+                            .then(() => {
                             logger.info(`SSE transport connected with session ID: ${sessionId}`);
-                            logDebugEvent('transport.sse', { status: 'info', message: `Session ${sessionId} handshake established` });
-                        }).catch(error => {
+                            logDebugEvent('transport.sse', {
+                                status: 'info',
+                                message: `Session ${sessionId} handshake established`,
+                            });
+                        })
+                            .catch(error => {
                             logger.error('Failed to connect SSE transport:', error);
                             logDebugError('transport.sse', error, { details: { sessionId, phase: 'connect' } });
                             res.status(500).end();
                         });
                         // Start the SSE connection
-                        transport.start().then(() => {
+                        transport
+                            .start()
+                            .then(() => {
                             logger.info('SSE transport started successfully');
-                            logDebugEvent('transport.sse', { status: 'success', message: `Session ${sessionId} streaming` });
-                        }).catch(error => {
+                            logDebugEvent('transport.sse', {
+                                status: 'success',
+                                message: `Session ${sessionId} streaming`,
+                            });
+                        })
+                            .catch(error => {
                             logger.error('Failed to start SSE transport:', error);
                             logDebugError('transport.sse', error, { details: { sessionId, phase: 'start' } });
                             res.status(500).end();
@@ -1462,7 +1572,10 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
                         req.on('close', () => {
                             activeTransports.delete(sessionId);
                             logger.info(`SSE connection closed for session: ${sessionId}`);
-                            logDebugEvent('transport.sse', { status: 'info', message: `Session ${sessionId} closed` });
+                            logDebugEvent('transport.sse', {
+                                status: 'info',
+                                message: `Session ${sessionId} closed`,
+                            });
                         });
                     }
                     catch (error) {
@@ -1490,10 +1603,13 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
                         }
                         // If no transport handled it, return an error
                         logger.error('No active transport could handle the POST message');
-                        logDebugEvent('transport.sse', { status: 'error', message: 'POST message received without an active transport' });
+                        logDebugEvent('transport.sse', {
+                            status: 'error',
+                            message: 'POST message received without an active transport',
+                        });
                         res.status(500).json({
                             jsonrpc: '2.0',
-                            error: { code: -32603, message: 'No active transport available' }
+                            error: { code: -32603, message: 'No active transport available' },
                         });
                     }
                     catch (error) {
@@ -1501,7 +1617,7 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
                         logDebugError('transport.sse', error, { details: { phase: 'post' } });
                         res.status(500).json({
                             jsonrpc: '2.0',
-                            error: { code: -32603, message: 'Internal server error' }
+                            error: { code: -32603, message: 'Internal server error' },
                         });
                     }
                 });
@@ -1509,16 +1625,25 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
                 app.listen(port, () => {
                     logger.info(`AutoHotkey MCP Server started with SSE transport on port ${port}`);
                     logger.info(`ChatGPT URL: http://localhost:${port}/sse`);
-                    logDebugEvent('server.start', { status: 'success', message: `SSE transport listening on port ${port}` });
+                    logDebugEvent('server.start', {
+                        status: 'success',
+                        message: `SSE transport listening on port ${port}`,
+                    });
                 });
             }
             else {
-                logDebugEvent('server.start', { status: 'start', message: 'Launching stdio transport (Claude Desktop)' });
+                logDebugEvent('server.start', {
+                    status: 'start',
+                    message: 'Launching stdio transport (Claude Desktop)',
+                });
                 // Connect to stdio (for Claude Desktop)
                 const transport = new StdioServerTransport();
                 await this.server.connect(transport);
                 logger.info('AutoHotkey MCP Server started and connected to stdio');
-                logDebugEvent('server.start', { status: 'success', message: 'Stdio transport ready (Claude Desktop)' });
+                logDebugEvent('server.start', {
+                    status: 'success',
+                    message: 'Stdio transport ready (Claude Desktop)',
+                });
             }
             // Handle process termination gracefully
             process.on('SIGINT', () => {

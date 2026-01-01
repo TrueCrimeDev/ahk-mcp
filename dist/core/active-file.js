@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import logger from '../logger.js';
 import { toolSettings } from './tool-settings.js';
-import { detectFilePaths, resolveFilePath, getActiveFile as getPersistedActiveFile, setActiveFile as persistActiveFile, clearActiveFile as clearPersistedActiveFile } from './config.js';
+import { detectFilePaths, resolveFilePath, getActiveFile as getPersistedActiveFile, setActiveFile as persistActiveFile, clearActiveFile as clearPersistedActiveFile, } from './config.js';
 /**
  * Simple global variable system for active file tracking
  * ALL tools can read and write to this shared state
@@ -128,7 +128,7 @@ class ActiveFileManager {
             activeFile: this.activeFilePath,
             lastDetected: this.lastDetectedPath,
             lastModified: this.lastModified,
-            exists: this.activeFilePath ? fs.existsSync(this.activeFilePath) : false
+            exists: this.activeFilePath ? fs.existsSync(this.activeFilePath) : false,
         };
     }
 }

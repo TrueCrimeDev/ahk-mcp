@@ -19,17 +19,19 @@ export class AhkCompiler {
             return {
                 success: true,
                 data: tokens,
-                errors: []
+                errors: [],
             };
         }
         catch (error) {
             return {
                 success: false,
-                errors: [{
+                errors: [
+                    {
                         message: error instanceof Error ? error.message : 'Tokenization failed',
                         line: 1,
-                        column: 1
-                    }]
+                        column: 1,
+                    },
+                ],
             };
         }
     }
@@ -45,18 +47,20 @@ export class AhkCompiler {
             return {
                 success: true,
                 data: ast,
-                errors: []
+                errors: [],
             };
         }
         catch (error) {
             const parseError = error;
             return {
                 success: false,
-                errors: [{
+                errors: [
+                    {
                         message: parseError.message || 'Parse error',
                         line: parseError.line || 1,
-                        column: parseError.column || 1
-                    }]
+                        column: parseError.column || 1,
+                    },
+                ],
             };
         }
     }
@@ -72,17 +76,19 @@ export class AhkCompiler {
             return {
                 success: true,
                 data: diagnostics,
-                errors: []
+                errors: [],
             };
         }
         catch (error) {
             return {
                 success: false,
-                errors: [{
+                errors: [
+                    {
                         message: error instanceof Error ? error.message : 'Linting failed',
                         line: 1,
-                        column: 1
-                    }]
+                        column: 1,
+                    },
+                ],
             };
         }
     }
@@ -98,17 +104,19 @@ export class AhkCompiler {
             return {
                 success: true,
                 data: tokens,
-                errors: []
+                errors: [],
             };
         }
         catch (error) {
             return {
                 success: false,
-                errors: [{
+                errors: [
+                    {
                         message: error instanceof Error ? error.message : 'Semantic analysis failed',
                         line: 1,
-                        column: 1
-                    }]
+                        column: 1,
+                    },
+                ],
             };
         }
     }
@@ -122,7 +130,7 @@ export class AhkCompiler {
             tokens: this.tokenize(source),
             ast: this.parse(source),
             diagnostics: this.lint(source),
-            semanticTokens: this.semantics(source)
+            semanticTokens: this.semantics(source),
         };
     }
     /**
@@ -133,9 +141,9 @@ export class AhkCompiler {
     static validate(source) {
         const parseResult = this.parse(source);
         const lintResult = this.lint(source);
-        return parseResult.success &&
+        return (parseResult.success &&
             lintResult.success &&
-            (lintResult.data?.filter(d => d.severity === 'error').length || 0) === 0;
+            (lintResult.data?.filter(d => d.severity === 'error').length || 0) === 0);
     }
     /**
      * Format diagnostic messages for human consumption
@@ -205,7 +213,9 @@ export class AhkCompiler {
                     else if (stmt.type === 'IfStatement') {
                         complexity += 1;
                     }
-                    else if (stmt.type === 'WhileStatement' || stmt.type === 'ForStatement' || stmt.type === 'LoopStatement') {
+                    else if (stmt.type === 'WhileStatement' ||
+                        stmt.type === 'ForStatement' ||
+                        stmt.type === 'LoopStatement') {
                         complexity += 2;
                     }
                     else if (stmt.type === 'TryStatement') {
@@ -241,7 +251,7 @@ export class AhkCompiler {
             functions,
             classes,
             comments,
-            complexity
+            complexity,
         };
     }
 }

@@ -26,7 +26,7 @@ export class MessageInterceptor {
             resolvedFiles: [],
             activeFileSet: false,
             originalMessage: message,
-            hasInstructions: false
+            hasInstructions: false,
         };
         // Detect file paths in the message
         result.detectedFiles = detectFilePaths(message);
@@ -41,13 +41,13 @@ export class MessageInterceptor {
             }
         }
         // Check if message has instructions beyond just the file path
-        const lines = message.split('\n').map(l => l.trim()).filter(l => l);
+        const lines = message
+            .split('\n')
+            .map(l => l.trim())
+            .filter(l => l);
         const nonPathLines = lines.filter(line => {
             // Check if this line is just a file path
-            return !result.detectedFiles.some(p => line === p ||
-                line === `"${p}"` ||
-                line === `'${p}'` ||
-                line.endsWith(p));
+            return !result.detectedFiles.some(p => line === p || line === `"${p}"` || line === `'${p}'` || line.endsWith(p));
         });
         result.hasInstructions = nonPathLines.length > 0;
         // Auto-set the first resolved file as active if enabled
@@ -82,7 +82,7 @@ export class MessageInterceptor {
         const result = {
             filePath: undefined,
             instructions: [],
-            rawLines: lines
+            rawLines: lines,
         };
         // Check first few lines for file path
         for (let i = 0; i < Math.min(3, lines.length); i++) {
