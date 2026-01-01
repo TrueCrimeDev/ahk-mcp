@@ -36,7 +36,7 @@ export const AhkCloudAhkValidateArgsSchema = z.object({
 export type AhkCloudAhkValidateArgs = z.infer<typeof AhkCloudAhkValidateArgsSchema>;
 
 export const ahkCloudAhkValidateToolDefinition = {
-  name: 'AHK_CloudAHK_Validate',
+  name: 'AHK_Cloud_Validate',
   description: `Validate AutoHotkey code by actually executing it via CloudAHK.
 
 This tool sends your AHK code to a CloudAHK server (Docker-based execution service)
@@ -164,7 +164,7 @@ export class AhkCloudAhkValidateTool {
    * Execute the CloudAHK validation
    */
   async execute(args: unknown): Promise<any> {
-    const parsed = safeParse(args, AhkCloudAhkValidateArgsSchema, 'AHK_CloudAHK_Validate');
+    const parsed = safeParse(args, AhkCloudAhkValidateArgsSchema, 'AHK_Cloud_Validate');
     if (!parsed.success) return parsed.error;
 
     const { code, version } = parsed.data;

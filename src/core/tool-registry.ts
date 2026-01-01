@@ -66,7 +66,7 @@ export class ToolRegistry {
       { name: 'AHK_Trace_Viewer', instance: 'ahkTraceViewerToolInstance' },
       { name: 'AHK_Lint', instance: 'ahkLintToolInstance' },
       { name: 'AHK_THQBY_Document_Symbols', instance: 'ahkThqbyDocumentSymbolsToolInstance' },
-      { name: 'AHK_CloudAHK_Validate', instance: 'ahkCloudAhkValidateToolInstance' },
+      { name: 'AHK_Cloud_Validate', instance: 'ahkCloudAhkValidateToolInstance' },
     ];
 
     coreTools.forEach(tool => {
