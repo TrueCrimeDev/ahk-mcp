@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import logger from '../logger.js';
 import { OrchestrationEngine, OrchestrationRequest } from '../core/orchestration-engine.js';
+import { AhkCloudValidateTool } from './ahk-cloud-validate.js';
 
 export const AhkSmartOrchestratorArgsSchema = z.object({
   intent: z.string().min(1).describe('High-level description of what you want to do'),
@@ -11,6 +12,11 @@ export const AhkSmartOrchestratorArgsSchema = z.object({
     .describe('Optional: Specific class, method, or function name'),
   operation: z.enum(['view', 'edit', 'analyze']).default('view').describe('Operation type'),
   forceRefresh: z.boolean().optional().default(false).describe('Force re-analysis of file'),
+  validate: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('Validate file syntax before edit operations. Returns errors if validation fails.'),
 });
 
 export type AhkSmartOrchestratorArgs = z.infer<typeof AhkSmartOrchestratorArgsSchema>;
@@ -47,6 +53,11 @@ export const ahkSmartOrchestratorToolDefinition = {
         default: false,
         description: 'Force re-analysis even if cached data exists',
       },
+      validate: {
+        type: 'boolean',
+        default: false,
+        description: 'Validate file syntax before edit. Blocks if errors found.',
+      },
     },
     required: ['intent'],
   },
@@ -54,9 +65,11 @@ export const ahkSmartOrchestratorToolDefinition = {
 
 export class AhkSmartOrchestratorTool {
   private engine: OrchestrationEngine;
+  private validateTool: AhkCloudValidateTool;
 
   constructor() {
     this.engine = new OrchestrationEngine();
+    this.validateTool = new AhkCloudValidateTool();
   }
 
   async execute(args: z.infer<typeof AhkSmartOrchestratorArgsSchema>): Promise<any> {
@@ -68,6 +81,7 @@ export class AhkSmartOrchestratorTool {
         hasFilePath: !!validatedArgs.filePath,
         targetEntity: validatedArgs.targetEntity,
         operation: validatedArgs.operation,
+        validate: validatedArgs.validate,
       });
 
       const request: OrchestrationRequest = {
@@ -79,6 +93,52 @@ export class AhkSmartOrchestratorTool {
       };
 
       const result = await this.engine.orchestrate(request);
+
+      // Validate file if requested and we have a file path
+      if (validatedArgs.validate && result.success && result.metadata?.filePath) {
+        logger.info(`Validating file: ${result.metadata.filePath}`);
+        const fs = await import('fs/promises');
+        try {
+          const fileContent = await fs.readFile(result.metadata.filePath, 'utf-8');
+          const validationResult = await this.validateTool.execute({ code: fileContent });
+
+          // Parse validation response
+          const validationText = validationResult.content?.[1]?.text || '';
+          let validationData: any = {};
+          try {
+            const jsonMatch = validationText.match(/```json\n([\s\S]*?)\n```/);
+            if (jsonMatch) {
+              validationData = JSON.parse(jsonMatch[1]);
+            }
+          } catch {
+            // Ignore parse errors
+          }
+
+          if (!validationData.success || (validationData.errors && validationData.errors.length > 0)) {
+            const errorList = validationData.errors?.map((e: any) =>
+              `- **${e.type}** (line ${e.line || '?'}): ${e.message}`
+            ).join('\n') || 'Unknown validation error';
+
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `**Validation Failed**\n\n` +
+                        `File: ${result.metadata.filePath}\n\n` +
+                        `Errors found:\n${errorList}\n\n` +
+                        `Fix these errors before editing.`,
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          // Add validation success to result
+          result.context = `✓ **Validation Passed**\n\n${result.context}`;
+        } catch (readError) {
+          logger.warn(`Failed to read file for validation: ${readError}`);
+        }
+      }
 
       if (!result.success) {
         return {

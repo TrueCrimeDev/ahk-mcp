@@ -39,6 +39,7 @@ import { AHK_Library_List_Definition } from '../tools/ahk-library-list.js';
 import { AHK_Library_Info_Definition } from '../tools/ahk-library-info.js';
 import { AHK_Library_Import_Definition } from '../tools/ahk-library-import.js';
 import { AHK_Library_Search_Definition } from '../tools/ahk-library-search.js';
+import { ahkCloudValidateToolDefinition } from '../tools/ahk-cloud-validate.js';
 
 export type ToolCategory =
   | 'analysis'
@@ -106,6 +107,7 @@ const TOOL_METADATA: ToolMetadataEntry[] = [
   entry(AHK_Library_Info_Definition, 'library-info', 'library'),
   entry(AHK_Library_Import_Definition, 'library-import', 'library'),
   entry(AHK_Library_Search_Definition, 'library-search', 'library'),
+  entry(ahkCloudValidateToolDefinition, 'cloud-validate', 'execution'),
 ];
 
 export function getToolMetadata(): ToolMetadataEntry[] {
