@@ -2,12 +2,13 @@
  * AHK_Cloud_Validate Tool
  *
  * Validates AutoHotkey v2 code by executing it locally via spawn.
- * Parses stdout/stderr for runtime errors and returns structured results.
+ * Supports one-shot validation and watch mode for auto-validation on save.
  */
 
 import { z } from 'zod';
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
 import logger from '../logger.js';
@@ -17,7 +18,16 @@ import { createErrorResponse } from '../utils/response-helpers.js';
 // ===== Schema Definition =====
 
 export const AhkCloudValidateArgsSchema = z.object({
-  code: z.string().min(1).describe('AHK v2 code to validate'),
+  mode: z
+    .enum(['validate', 'watch'])
+    .default('validate')
+    .describe('Mode: validate (one-shot) or watch (auto-validate on file save)'),
+
+  code: z.string().optional().describe('AHK v2 code to validate (required for validate mode)'),
+
+  filePath: z.string().optional().describe('Path to .ahk file to watch (required for watch mode)'),
+
+  enabled: z.boolean().default(true).describe('Enable/disable watcher (watch mode only)'),
 
   ahkPath: z
     .string()
@@ -28,8 +38,8 @@ export const AhkCloudValidateArgsSchema = z.object({
     .number()
     .min(1000)
     .max(60000)
-    .default(10000)
-    .describe('Execution timeout in milliseconds (default: 10000)'),
+    .default(5000)
+    .describe('Execution timeout in milliseconds (default: 5000)'),
 });
 
 export type AhkCloudValidateArgs = z.infer<typeof AhkCloudValidateArgsSchema>;
@@ -38,12 +48,16 @@ export type AhkCloudValidateArgs = z.infer<typeof AhkCloudValidateArgsSchema>;
 
 export const ahkCloudValidateToolDefinition = {
   name: 'AHK_Cloud_Validate',
-  description: `Validate AHK v2 code by executing it locally. Returns structured results with success status, output, execution time, and parsed errors.
+  description: `Validate AHK v2 code with optional watch mode for auto-validation on save.
+
+**Modes:**
+- \`validate\`: One-shot validation of code snippet
+- \`watch\`: Auto-validate file on every save
 
 **Examples:**
-- Validate a simple script: \`{ "code": "MsgBox(\\"Hello\\")\\nExitApp" }\`
-- With custom AHK path: \`{ "code": "...", "ahkPath": "C:\\\\AutoHotkey\\\\v2\\\\AutoHotkey64.exe" }\`
-- With timeout: \`{ "code": "...", "timeout": 30000 }\`
+- Validate code: \`{ "code": "MsgBox(\\"Hi\\")\\nExitApp" }\`
+- Start watching: \`{ "mode": "watch", "filePath": "C:\\\\Scripts\\\\test.ahk" }\`
+- Stop watching: \`{ "mode": "watch", "enabled": false }\`
 
 **Error Patterns Detected:**
 - Syntax errors (line number + message)
@@ -52,19 +66,33 @@ export const ahkCloudValidateToolDefinition = {
 
   inputSchema: {
     type: 'object',
-    required: ['code'],
     properties: {
+      mode: {
+        type: 'string',
+        enum: ['validate', 'watch'],
+        default: 'validate',
+        description: 'validate = one-shot, watch = auto-validate on save',
+      },
       code: {
         type: 'string',
-        description: 'AHK v2 code to validate',
+        description: 'AHK v2 code to validate (for validate mode)',
+      },
+      filePath: {
+        type: 'string',
+        description: 'Path to .ahk file to watch (for watch mode)',
+      },
+      enabled: {
+        type: 'boolean',
+        default: true,
+        description: 'Enable/disable watcher',
       },
       ahkPath: {
         type: 'string',
-        description: 'Path to AutoHotkey v2 executable (auto-detected if not provided)',
+        description: 'Path to AutoHotkey v2 executable (auto-detected)',
       },
       timeout: {
         type: 'number',
-        default: 10000,
+        default: 5000,
         minimum: 1000,
         maximum: 60000,
         description: 'Execution timeout in milliseconds',
@@ -116,7 +144,9 @@ function parseErrors(output: string): ParsedError[] {
     if (!trimmed) continue;
 
     // Pattern 1: "file.ahk (line) : ==> Error: message" (with error type)
-    const typedMatch = trimmed.match(/^(.+?)\s*\((\d+)\)\s*:\s*=+>\s*(Error|Warning|TypeError|ValueError):\s*(.+)/i);
+    const typedMatch = trimmed.match(
+      /^(.+?)\s*\((\d+)\)\s*:\s*=+>\s*(Error|Warning|TypeError|ValueError):\s*(.+)/i
+    );
     if (typedMatch) {
       if (currentError) errors.push(currentError);
       currentError = {
@@ -152,7 +182,9 @@ function parseErrors(output: string): ParsedError[] {
     }
 
     // Pattern 4: Standalone error type header "ErrorType: message"
-    const headerMatch = trimmed.match(/^(Error|ValueError|TypeError|OSError|TargetError|MemberError|IndexError|PropertyError|MethodError|ZeroDivisionError|UnsetError):\s*(.+)/);
+    const headerMatch = trimmed.match(
+      /^(Error|ValueError|TypeError|OSError|TargetError|MemberError|IndexError|PropertyError|MethodError|ZeroDivisionError|UnsetError):\s*(.+)/
+    );
     if (headerMatch) {
       if (currentError) errors.push(currentError);
       currentError = {
@@ -164,7 +196,10 @@ function parseErrors(output: string): ParsedError[] {
     }
 
     // Pattern 5: "This ... variable has not been assigned" (unset var)
-    if (trimmed.includes('variable has not been assigned') || trimmed.includes('not been assigned a value')) {
+    if (
+      trimmed.includes('variable has not been assigned') ||
+      trimmed.includes('not been assigned a value')
+    ) {
       if (currentError) {
         currentError.message = trimmed;
       } else {
@@ -195,58 +230,53 @@ export interface ValidateResult {
   summary: string;
 }
 
+// ===== Watch State =====
+
+interface WatchState {
+  filePath: string;
+  watcher: fsSync.FSWatcher | null;
+  ahkPath: string;
+  timeout: number;
+  debounceTimer: NodeJS.Timeout | null;
+  lastResult: ValidateResult | null;
+  validationCount: number;
+  errorCount: number;
+}
+
 // ===== Tool Implementation =====
 
 export class AhkCloudValidateTool {
-  async execute(args: unknown): Promise<any> {
+  private static watchState: WatchState | null = null;
+
+  /**
+   * Core validation logic - validates code and returns structured result
+   */
+  private async validateCode(
+    code: string,
+    ahkPath: string,
+    timeout: number
+  ): Promise<ValidateResult> {
     const startTime = Date.now();
-
-    // Validate arguments
-    const parsed = safeParse(args, AhkCloudValidateArgsSchema, 'AHK_Cloud_Validate');
-    if (!parsed.success) {
-      return parsed.error;
-    }
-
-    const { code, ahkPath: providedAhkPath, timeout } = parsed.data;
-
-    // Find AHK executable
-    let ahkPath = providedAhkPath;
-    if (!ahkPath) {
-      ahkPath = await findAutoHotkeyPath();
-      if (!ahkPath) {
-        return createErrorResponse(
-          'AutoHotkey v2 not found. Install it or provide ahkPath parameter.'
-        );
-      }
-    }
-
-    // Verify AHK exists
-    try {
-      await fs.access(ahkPath);
-    } catch {
-      return createErrorResponse(`AutoHotkey not found at: ${ahkPath}`);
-    }
 
     // Create temp file
     const tempDir = os.tmpdir();
     const tempFile = path.join(tempDir, `ahk-validate-${Date.now()}.ahk`);
 
-    try {
-      await fs.writeFile(tempFile, code, 'utf-8');
-      logger.info(`Validate: wrote temp file ${tempFile}`);
-    } catch (error) {
-      return createErrorResponse(`Failed to write temp file: ${error}`);
-    }
-
-    // Execute AHK
     let stdout = '';
     let stderr = '';
     let exitCode: number | null = null;
     let timedOut = false;
 
     try {
-      const result = await new Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }>((resolve) => {
-        const child = spawn(ahkPath!, ['/ErrorStdOut=utf-8', tempFile], {
+      await fs.writeFile(tempFile, code, 'utf-8');
+
+      const result = await new Promise<{
+        stdout: string;
+        stderr: string;
+        exitCode: number | null;
+        timedOut: boolean;
+      }>(resolve => {
+        const child = spawn(ahkPath, ['/ErrorStdOut=utf-8', tempFile], {
           cwd: tempDir,
           windowsHide: true,
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -273,15 +303,20 @@ export class AhkCloudValidateTool {
           stderrData += data.toString();
         });
 
-        child.on('error', (err) => {
+        child.on('error', err => {
           if (!resolved) {
             resolved = true;
             clearTimeout(timeoutId);
-            resolve({ stdout: stdoutData, stderr: `Spawn error: ${err.message}`, exitCode: -1, timedOut: false });
+            resolve({
+              stdout: stdoutData,
+              stderr: `Spawn error: ${err.message}`,
+              exitCode: -1,
+              timedOut: false,
+            });
           }
         });
 
-        child.on('exit', (code) => {
+        child.on('exit', code => {
           if (!resolved) {
             resolved = true;
             clearTimeout(timeoutId);
@@ -298,7 +333,6 @@ export class AhkCloudValidateTool {
       // Cleanup temp file
       try {
         await fs.unlink(tempFile);
-        logger.info(`Validate: cleaned up ${tempFile}`);
       } catch {
         // Ignore cleanup errors
       }
@@ -326,7 +360,7 @@ export class AhkCloudValidateTool {
       summary = `Exited with code ${exitCode}`;
     }
 
-    const result: ValidateResult = {
+    return {
       success,
       output: stdout.slice(0, 5000),
       stderr: stderr.slice(0, 5000),
@@ -336,18 +370,139 @@ export class AhkCloudValidateTool {
       errors,
       summary,
     };
+  }
 
-    logger.info(`Validate: ${summary}`);
+  /**
+   * Handle file change event in watch mode
+   */
+  private async onFileChange(filePath: string): Promise<void> {
+    if (!AhkCloudValidateTool.watchState) return;
 
-    // Format response
-    const statusIcon = success ? '✓' : '✗';
-    const statusText = success ? 'PASSED' : timedOut ? 'TIMEOUT' : 'FAILED';
+    const state = AhkCloudValidateTool.watchState;
 
-    let textOutput = `${statusIcon} **${statusText}** - ${summary}\n\n`;
+    try {
+      const code = await fs.readFile(filePath, 'utf-8');
+      const result = await this.validateCode(code, state.ahkPath, state.timeout);
 
-    if (errors.length > 0) {
+      state.lastResult = result;
+      state.validationCount++;
+
+      if (!result.success) {
+        state.errorCount++;
+      }
+
+      // Log result
+      const icon = result.success ? '✓' : '✗';
+      const time = new Date().toLocaleTimeString();
+      logger.info(`[${time}] ${icon} ${path.basename(filePath)}: ${result.summary}`);
+
+      if (result.errors.length > 0) {
+        for (const err of result.errors) {
+          logger.warn(`  Line ${err.line || '?'}: ${err.type} - ${err.message}`);
+        }
+      }
+    } catch (error) {
+      logger.error(`Watch validation error: ${error}`);
+    }
+  }
+
+  /**
+   * Start watching a file
+   */
+  private startWatch(filePath: string, ahkPath: string, timeout: number): void {
+    // Stop existing watcher if any
+    this.stopWatch();
+
+    const debounceMs = 300;
+
+    const watcher = fsSync.watch(filePath, { persistent: true }, event => {
+      if (event !== 'change') return;
+
+      // Debounce rapid changes
+      if (AhkCloudValidateTool.watchState?.debounceTimer) {
+        clearTimeout(AhkCloudValidateTool.watchState.debounceTimer);
+      }
+
+      if (AhkCloudValidateTool.watchState) {
+        AhkCloudValidateTool.watchState.debounceTimer = setTimeout(() => {
+          this.onFileChange(filePath);
+        }, debounceMs);
+      }
+    });
+
+    watcher.on('error', err => {
+      logger.error(`Watch error: ${err}`);
+    });
+
+    AhkCloudValidateTool.watchState = {
+      filePath,
+      watcher,
+      ahkPath,
+      timeout,
+      debounceTimer: null,
+      lastResult: null,
+      validationCount: 0,
+      errorCount: 0,
+    };
+
+    logger.info(`Started watching: ${filePath}`);
+
+    // Run initial validation
+    this.onFileChange(filePath);
+  }
+
+  /**
+   * Stop watching
+   */
+  private stopWatch(): void {
+    if (AhkCloudValidateTool.watchState) {
+      if (AhkCloudValidateTool.watchState.debounceTimer) {
+        clearTimeout(AhkCloudValidateTool.watchState.debounceTimer);
+      }
+      if (AhkCloudValidateTool.watchState.watcher) {
+        AhkCloudValidateTool.watchState.watcher.close();
+      }
+      logger.info(`Stopped watching: ${AhkCloudValidateTool.watchState.filePath}`);
+      AhkCloudValidateTool.watchState = null;
+    }
+  }
+
+  /**
+   * Get current watch status
+   */
+  private getWatchStatus(): string {
+    if (!AhkCloudValidateTool.watchState) {
+      return 'No active watcher';
+    }
+
+    const state = AhkCloudValidateTool.watchState;
+    const lastStatus = state.lastResult
+      ? state.lastResult.success
+        ? '✓ Valid'
+        : `✗ ${state.lastResult.errors.length} error(s)`
+      : 'Pending';
+
+    return [
+      `**Watch Mode Active**`,
+      `- File: \`${state.filePath}\``,
+      `- Validations: ${state.validationCount}`,
+      `- Errors found: ${state.errorCount}`,
+      `- Last status: ${lastStatus}`,
+    ].join('\n');
+  }
+
+  /**
+   * Format validation result for response
+   */
+  private formatResult(result: ValidateResult): string {
+    const statusIcon = result.success ? '✓' : '✗';
+    const statusText = result.success ? 'PASSED' : result.timedOut ? 'TIMEOUT' : 'FAILED';
+
+    let textOutput = `${statusIcon} **${statusText}** - ${result.summary}\n\n`;
+
+    if (result.errors.length > 0) {
       textOutput += '**Errors:**\n';
-      for (const err of errors) {
+      for (const err of result.errors) {
         const lineInfo = err.line ? `:${err.line}` : '';
         const extra = err.extra ? ` → ${err.extra}` : '';
         textOutput += `- **${err.type}**${lineInfo}: ${err.message}${extra}\n`;
@@ -355,17 +510,136 @@ export class AhkCloudValidateTool {
       textOutput += '\n';
     }
 
-    if (stdout && stdout.trim()) {
-      const truncated = stdout.length > 2000;
-      const displayOutput = truncated ? stdout.slice(0, 2000) + '\n...(truncated)' : stdout;
+    if (result.output && result.output.trim()) {
+      const truncated = result.output.length > 2000;
+      const displayOutput = truncated
+        ? result.output.slice(0, 2000) + '\n...(truncated)'
+        : result.output;
       textOutput += `**Output:**\n\`\`\`\n${displayOutput}\n\`\`\`\n`;
     }
+
+    return textOutput;
+  }
+
+  async execute(args: unknown): Promise<any> {
+    // Validate arguments
+    const parsed = safeParse(args, AhkCloudValidateArgsSchema, 'AHK_Cloud_Validate');
+    if (!parsed.success) {
+      return parsed.error;
+    }
+
+    const { mode, code, filePath, enabled, ahkPath: providedAhkPath, timeout } = parsed.data;
+
+    // Find AHK executable
+    let ahkPath = providedAhkPath;
+    if (!ahkPath) {
+      ahkPath = await findAutoHotkeyPath();
+      if (!ahkPath) {
+        return createErrorResponse(
+          'AutoHotkey v2 not found. Install it or provide ahkPath parameter.'
+        );
+      }
+    }
+
+    // Verify AHK exists
+    try {
+      await fs.access(ahkPath);
+    } catch {
+      return createErrorResponse(`AutoHotkey not found at: ${ahkPath}`);
+    }
+
+    // Handle watch mode
+    if (mode === 'watch') {
+      if (!enabled) {
+        // Stop watching
+        const wasWatching = AhkCloudValidateTool.watchState !== null;
+        const stats = AhkCloudValidateTool.watchState
+          ? `Validations: ${AhkCloudValidateTool.watchState.validationCount}, Errors: ${AhkCloudValidateTool.watchState.errorCount}`
+          : '';
+        this.stopWatch();
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: wasWatching
+                ? `**Watcher Stopped**\n\n${stats}`
+                : '**No Active Watcher**\n\nNothing to stop.',
+            },
+          ],
+        };
+      }
+
+      // Start or check watch
+      if (!filePath) {
+        // Return current status
+        return {
+          content: [{ type: 'text', text: this.getWatchStatus() }],
+        };
+      }
+
+      // Validate file path
+      if (!filePath.toLowerCase().endsWith('.ahk')) {
+        return createErrorResponse('File must have .ahk extension');
+      }
+
+      try {
+        await fs.access(filePath);
+      } catch {
+        return createErrorResponse(`File not found: ${filePath}`);
+      }
+
+      // Start watching
+      this.startWatch(filePath, ahkPath, timeout ?? 5000);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `**Watch Mode Started**\n\n` +
+              `- File: \`${filePath}\`\n` +
+              `- Auto-validates on every save\n` +
+              `- Timeout: ${timeout}ms\n\n` +
+              `Use \`{ "mode": "watch", "enabled": false }\` to stop.`,
+          },
+        ],
+      };
+    }
+
+    // Handle validate mode (one-shot)
+    if (!code) {
+      return createErrorResponse('Code is required for validate mode');
+    }
+
+    const result = await this.validateCode(code, ahkPath, timeout ?? 5000);
+    const textOutput = this.formatResult(result);
+
+    logger.info(`Validate: ${result.summary}`);
 
     return {
       content: [
         { type: 'text', text: textOutput },
-        { type: 'text', text: `\n**Details:**\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`` },
+        {
+          type: 'text',
+          text: `\n**Details:**\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``,
+        },
       ],
     };
+  }
+
+  /**
+   * Cleanup - stop watcher if active
+   */
+  static cleanup(): void {
+    if (AhkCloudValidateTool.watchState) {
+      if (AhkCloudValidateTool.watchState.debounceTimer) {
+        clearTimeout(AhkCloudValidateTool.watchState.debounceTimer);
+      }
+      if (AhkCloudValidateTool.watchState.watcher) {
+        AhkCloudValidateTool.watchState.watcher.close();
+      }
+      AhkCloudValidateTool.watchState = null;
+    }
   }
 }
