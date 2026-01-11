@@ -5,6 +5,7 @@ import { ahkWorkflowAnalyzeFixRunToolDefinition } from '../tools/ahk-workflow-an
 import { ahkFileEditorToolDefinition } from '../tools/ahk-file-edit-advanced.js';
 import { ahkEditToolDefinition } from '../tools/ahk-file-edit.js';
 import { ahkFileToolDefinition } from '../tools/ahk-file-active.js';
+
 import { ahkFileCreateToolDefinition } from '../tools/ahk-file-create.js';
 import { ahkDiffEditToolDefinition } from '../tools/ahk-file-edit-diff.js';
 import { ahkDiagnosticsToolDefinition } from '../tools/ahk-analyze-diagnostics.js';

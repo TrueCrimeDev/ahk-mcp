@@ -6,6 +6,7 @@ import { activeFile } from '../core/active-file.js';
 import { checkToolAvailability, toolSettings } from '../core/tool-settings.js';
 import { handleEditFailure } from './ahk-system-alpha.js';
 import { AhkRunTool } from './ahk-run-script.js';
+import { AhkCloudValidateTool } from './ahk-cloud-validate.js';
 import { resolveWithTracking, addDeprecationWarning } from '../core/parameter-aliases.js';
 import { createPreviewGenerator } from '../utils/dry-run-preview.js';
 import { pathConverter, PathFormat } from '../utils/path-converter.js';
@@ -61,6 +62,13 @@ export const AhkEditArgsSchema = z.object({
     .default(false)
     .describe(
       'Preview-only mode. When true, no files are modified and a "DRY RUN - No changes made" report is returned.'
+    ),
+  validate: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      'Validate AHK code before writing. When true, runs the resulting code through AHK_Cloud_Validate and blocks the edit if errors are found.'
     ),
 });
 
@@ -169,15 +177,23 @@ Shows a DRY RUN report instead of touching the file.
         description:
           'Preview changes without modifying file. Shows affected lines and change count.',
       },
+      validate: {
+        type: 'boolean',
+        default: false,
+        description:
+          'Validate AHK code before writing. Blocks edit if syntax errors are found.',
+      },
     },
   },
 };
 
 export class AhkEditTool {
   private runTool: AhkRunTool;
+  private validateTool: AhkCloudValidateTool;
 
   constructor() {
     this.runTool = new AhkRunTool();
+    this.validateTool = new AhkCloudValidateTool();
   }
   /**
    * Perform replace operation
@@ -312,6 +328,7 @@ export class AhkEditTool {
         backup,
         runAfter,
         dryRun,
+        validate,
       } = validatedArgs;
       const shouldRunAfterEdit =
         typeof runAfter === 'boolean' ? runAfter : toolSettings.shouldAutoRunAfterEdit();
@@ -592,6 +609,43 @@ export class AhkEditTool {
 
         default:
           throw new Error(`Unknown action: ${action}`);
+      }
+
+      // Validate new content if requested
+      if (validate) {
+        logger.info('Validating AHK code before write...');
+        const validationResult = await this.validateTool.execute({ code: newContent });
+
+        // Parse validation response
+        const validationText = validationResult.content?.[1]?.text || '';
+        let validationData: any = {};
+        try {
+          const jsonMatch = validationText.match(/```json\n([\s\S]*?)\n```/);
+          if (jsonMatch) {
+            validationData = JSON.parse(jsonMatch[1]);
+          }
+        } catch {
+          // Fallback: check for errors in first content block
+        }
+
+        if (!validationData.success || (validationData.errors && validationData.errors.length > 0)) {
+          const errorList = validationData.errors?.map((e: any) =>
+            `- **${e.type}** (line ${e.line || '?'}): ${e.message}`
+          ).join('\n') || 'Unknown validation error';
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Edit Blocked - Validation Failed**\n\n` +
+                      `The edit would introduce syntax errors:\n\n${errorList}\n\n` +
+                      `**File not modified.** Fix the code and try again, or set \`validate: false\` to skip validation.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        logger.info('Validation passed');
       }
 
       // Create backup if requested
