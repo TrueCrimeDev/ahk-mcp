@@ -125,7 +125,9 @@ export class AhkDiagnosticProvider {
             }
             // Check for common AutoHotkey v2 issues
             // Check for old v1 assignment syntax
-            if (trimmedLine.match(/^\w+\s*=\s*[^=]/) && !trimmedLine.includes('==') && !trimmedLine.includes('!=')) {
+            if (trimmedLine.match(/^\w+\s*=\s*[^=]/) &&
+                !trimmedLine.includes('==') &&
+                !trimmedLine.includes('!=')) {
                 const equalIndex = line.indexOf('=');
                 diagnostics.push(this.createDiagnostic('Use ":=" for assignment in AutoHotkey v2, "=" is for comparison', lineIndex, equalIndex, equalIndex + 1, DiagnosticSeverity.Warning));
             }
@@ -173,9 +175,26 @@ export class AhkDiagnosticProvider {
         // - Avoid misclassifying keywords like "if" as functions
         const lines = code.split('\n');
         const keywordSet = new Set([
-            'if', 'else', 'for', 'while', 'switch', 'case', 'default', 'try', 'catch',
-            'finally', 'return', 'throw', 'break', 'continue', 'class', 'extends',
-            'global', 'local', 'static', 'until'
+            'if',
+            'else',
+            'for',
+            'while',
+            'switch',
+            'case',
+            'default',
+            'try',
+            'catch',
+            'finally',
+            'return',
+            'throw',
+            'break',
+            'continue',
+            'class',
+            'extends',
+            'global',
+            'local',
+            'static',
+            'until',
         ]);
         const functionDefs = new Map();
         const classDefs = new Map();
@@ -324,14 +343,14 @@ export class AhkDiagnosticProvider {
     createDiagnostic(message, line, startChar, endChar, severity, code) {
         const range = {
             start: { line, character: startChar },
-            end: { line, character: endChar }
+            end: { line, character: endChar },
         };
         return {
             range,
             severity,
             message,
             code,
-            source: 'ahk-server'
+            source: 'ahk-server',
         };
     }
 }

@@ -5,6 +5,7 @@ import { ahkWorkflowAnalyzeFixRunToolDefinition } from '../tools/ahk-workflow-an
 import { ahkFileEditorToolDefinition } from '../tools/ahk-file-edit-advanced.js';
 import { ahkEditToolDefinition } from '../tools/ahk-file-edit.js';
 import { ahkFileToolDefinition } from '../tools/ahk-file-active.js';
+
 import { ahkFileCreateToolDefinition } from '../tools/ahk-file-create.js';
 import { ahkDiffEditToolDefinition } from '../tools/ahk-file-edit-diff.js';
 import { ahkDiagnosticsToolDefinition } from '../tools/ahk-analyze-diagnostics.js';
@@ -39,7 +40,7 @@ import { AHK_Library_List_Definition } from '../tools/ahk-library-list.js';
 import { AHK_Library_Info_Definition } from '../tools/ahk-library-info.js';
 import { AHK_Library_Import_Definition } from '../tools/ahk-library-import.js';
 import { AHK_Library_Search_Definition } from '../tools/ahk-library-search.js';
-import { ahkCloudValidateToolDefinition } from '../tools/ahk-cloud-validate.js';
+import { ahkCloudAhkValidateToolDefinition } from '../tools/ahk-cloudahk-validate.js';
 
 export type ToolCategory =
   | 'analysis'
@@ -107,7 +108,7 @@ const TOOL_METADATA: ToolMetadataEntry[] = [
   entry(AHK_Library_Info_Definition, 'library-info', 'library'),
   entry(AHK_Library_Import_Definition, 'library-import', 'library'),
   entry(AHK_Library_Search_Definition, 'library-search', 'library'),
-  entry(ahkCloudValidateToolDefinition, 'cloud-validate', 'execution'),
+  entry(ahkCloudAhkValidateToolDefinition, 'cloudahk-validate', 'execution'),
 ];
 
 export function getToolMetadata(): ToolMetadataEntry[] {

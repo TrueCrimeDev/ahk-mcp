@@ -85,9 +85,9 @@ import {
   ahkThqbyDocumentSymbolsToolDefinition,
 } from './tools/ahk-thqby-document-symbols.js';
 import {
-  AhkCloudValidateTool,
-  ahkCloudValidateToolDefinition,
-} from './tools/ahk-cloud-validate.js';
+  AhkCloudAhkValidateTool,
+  ahkCloudAhkValidateToolDefinition,
+} from './tools/ahk-cloudahk-validate.js';
 import { AHK_Library_List_Definition } from './tools/ahk-library-list.js';
 import { AHK_Library_Info_Definition } from './tools/ahk-library-info.js';
 import { AHK_Library_Import_Definition } from './tools/ahk-library-import.js';
@@ -140,7 +140,7 @@ export class AutoHotkeyMcpServer {
   public ahkWorkflowAnalyzeFixRunToolInstance: AhkWorkflowAnalyzeFixRunTool;
   public ahkThqbyDocumentSymbolsToolInstance: AhkThqbyDocumentSymbolsTool;
   public ahkLintToolInstance: AhkLintTool;
-  public ahkCloudValidateToolInstance: AhkCloudValidateTool;
+  public ahkCloudAhkValidateToolInstance: AhkCloudAhkValidateTool;
 
   constructor() {
     this.server = new Server(
@@ -202,7 +202,7 @@ export class AutoHotkeyMcpServer {
     this.ahkToolsSearchToolInstance = new AhkToolsSearchTool();
     this.ahkThqbyDocumentSymbolsToolInstance = new AhkThqbyDocumentSymbolsTool();
     this.ahkLintToolInstance = new AhkLintTool();
-    this.ahkCloudValidateToolInstance = new AhkCloudValidateTool();
+    this.ahkCloudAhkValidateToolInstance = new AhkCloudAhkValidateTool();
 
     this.toolRegistry = new ToolRegistry(this);
     this.taskManager = new TaskManager();

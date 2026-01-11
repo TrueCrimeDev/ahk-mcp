@@ -81,9 +81,31 @@ export class AhkLexer {
         this.column = 1;
         this.tokens = [];
         this.keywords = new Set([
-            'if', 'else', 'elseif', 'while', 'for', 'loop', 'break', 'continue',
-            'return', 'class', 'static', 'global', 'local', 'try', 'catch',
-            'finally', 'throw', 'and', 'or', 'not', 'in', 'is', 'true', 'false', 'null'
+            'if',
+            'else',
+            'elseif',
+            'while',
+            'for',
+            'loop',
+            'break',
+            'continue',
+            'return',
+            'class',
+            'static',
+            'global',
+            'local',
+            'try',
+            'catch',
+            'finally',
+            'throw',
+            'and',
+            'or',
+            'not',
+            'in',
+            'is',
+            'true',
+            'false',
+            'null',
         ]);
         this.source = source;
     }
@@ -330,7 +352,7 @@ export class AhkLexer {
             line: this.line,
             column: this.column - value.length,
             start: this.position - value.length,
-            end: this.position
+            end: this.position,
         };
         this.tokens.push(token);
     }

@@ -15,7 +15,7 @@ export class ClaudeStandardsEngine {
                 correct: 'config := Map("width", 800)',
                 incorrect: 'config := {width: 800}',
                 message: 'Use Map() constructor instead of object literals for AutoHotkey v2',
-                category: 'ahkv2_syntax'
+                category: 'ahkv2_syntax',
             },
             {
                 name: 'no_new_keyword',
@@ -23,7 +23,7 @@ export class ClaudeStandardsEngine {
                 correct: 'MyClass()',
                 incorrect: 'new MyClass()',
                 message: 'Remove "new" keyword when initializing classes in AutoHotkey v2',
-                category: 'ahkv2_syntax'
+                category: 'ahkv2_syntax',
             },
             {
                 name: 'use_assignment_operator',
@@ -31,7 +31,7 @@ export class ClaudeStandardsEngine {
                 correct: 'value := 10',
                 incorrect: 'value = 10',
                 message: 'Use ":=" for assignment, "=" for comparison in AutoHotkey v2',
-                category: 'ahkv2_syntax'
+                category: 'ahkv2_syntax',
             },
             {
                 name: 'escape_quotes_with_backticks',
@@ -39,7 +39,7 @@ export class ClaudeStandardsEngine {
                 correct: 'str := "Say `"Hello`" to user"',
                 incorrect: 'str := "Say \\"Hello\\" to user"',
                 message: 'Use backticks to escape quotes in AutoHotkey v2 strings',
-                category: 'ahkv2_syntax'
+                category: 'ahkv2_syntax',
             },
             {
                 name: 'use_semicolon_comments',
@@ -47,7 +47,7 @@ export class ClaudeStandardsEngine {
                 correct: '; This is a comment',
                 incorrect: '// This is wrong',
                 message: 'Use semicolon (;) for comments, not double slash (//) in AutoHotkey v2',
-                category: 'ahkv2_syntax'
+                category: 'ahkv2_syntax',
             },
             {
                 name: 'bind_methods_for_callbacks',
@@ -55,7 +55,7 @@ export class ClaudeStandardsEngine {
                 correct: 'button.OnEvent("Click", this.HandleClick.Bind(this))',
                 incorrect: 'button.OnEvent("Click", this.HandleClick)',
                 message: 'Use .Bind(this) when passing methods as callbacks in AutoHotkey v2',
-                category: 'ahkv2_best_practices'
+                category: 'ahkv2_best_practices',
             },
             {
                 name: 'arrow_functions_simple_only',
@@ -63,8 +63,8 @@ export class ClaudeStandardsEngine {
                 correct: 'callback := (*) => MsgBox("Simple action")',
                 incorrect: 'callback := (*) => { complex(); operations(); }',
                 message: 'Use arrow functions only for simple expressions in AutoHotkey v2',
-                category: 'ahkv2_best_practices'
-            }
+                category: 'ahkv2_best_practices',
+            },
         ];
         logger.info(`Loaded ${this.standards.length} Claude coding standards`);
     }
@@ -122,7 +122,7 @@ export class ClaudeStandardsEngine {
                     line: lineNumber,
                     column: line.indexOf('{'),
                     severity: 'warning',
-                    suggestion: 'Replace {key: value} with Map("key", value)'
+                    suggestion: 'Replace {key: value} with Map("key", value)',
                 };
             }
         }
@@ -138,7 +138,7 @@ export class ClaudeStandardsEngine {
                     line: lineNumber,
                     column: line.indexOf('new '),
                     severity: 'error',
-                    suggestion: 'Remove "new" keyword'
+                    suggestion: 'Remove "new" keyword',
                 };
             }
         }
@@ -147,14 +147,18 @@ export class ClaudeStandardsEngine {
     checkAssignmentOperator(line, lineNumber) {
         // Check for single = used for assignment (not in comparisons)
         const assignmentPattern = /^\s*\w+\s*=\s*[^=]/;
-        if (assignmentPattern.test(line) && !line.includes('==') && !line.includes('!=') && !line.includes('>=') && !line.includes('<=')) {
+        if (assignmentPattern.test(line) &&
+            !line.includes('==') &&
+            !line.includes('!=') &&
+            !line.includes('>=') &&
+            !line.includes('<=')) {
             return {
                 rule: 'use_assignment_operator',
                 message: 'Use ":=" for assignment, "=" for comparison in AutoHotkey v2',
                 line: lineNumber,
                 column: line.indexOf('='),
                 severity: 'error',
-                suggestion: 'Replace "=" with ":="'
+                suggestion: 'Replace "=" with ":="',
             };
         }
         return null;
@@ -168,7 +172,7 @@ export class ClaudeStandardsEngine {
                 line: lineNumber,
                 column: line.indexOf('\\'),
                 severity: 'warning',
-                suggestion: 'Replace \\" with `" or \\\' with `\''
+                suggestion: 'Replace \\" with `" or \\\' with `\'',
             };
         }
         return null;
@@ -181,7 +185,7 @@ export class ClaudeStandardsEngine {
                 line: lineNumber,
                 column: line.indexOf('//'),
                 severity: 'warning',
-                suggestion: 'Replace "//" with ";"'
+                suggestion: 'Replace "//" with ";"',
             };
         }
         return null;
@@ -197,7 +201,7 @@ export class ClaudeStandardsEngine {
                 line: lineNumber,
                 column: line.indexOf('this.'),
                 severity: 'error',
-                suggestion: 'Add .Bind(this) after ' + match[1]
+                suggestion: 'Add .Bind(this) after ' + match[1],
             };
         }
         return null;
@@ -212,7 +216,7 @@ export class ClaudeStandardsEngine {
                 line: lineNumber,
                 column: line.indexOf('=>'),
                 severity: 'warning',
-                suggestion: 'Consider using a regular function for complex operations'
+                suggestion: 'Consider using a regular function for complex operations',
             };
         }
         return null;
