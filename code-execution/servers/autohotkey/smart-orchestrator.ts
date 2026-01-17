@@ -38,6 +38,11 @@ export const metadata = {
       "type": "boolean",
       "default": false,
       "description": "Force re-analysis even if cached data exists"
+    },
+    "validate": {
+      "type": "boolean",
+      "default": false,
+      "description": "Validate file syntax before edit. Blocks if errors found."
     }
   },
   "required": [

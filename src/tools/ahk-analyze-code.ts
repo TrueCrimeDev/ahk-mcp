@@ -1,14 +1,20 @@
 import { z } from 'zod';
+import fs from 'fs/promises';
+import path from 'path';
 import { AhkCompiler } from '../compiler/ahk-compiler.js';
 import type { LintDiagnostic } from '../compiler/ahk-linter.js';
 import type { SemanticToken } from '../compiler/ahk-semantic-tokens.js';
 import logger from '../logger.js';
-import { autoDetect } from '../core/active-file.js';
+import { activeFile, autoDetect } from '../core/active-file.js';
 import { safeParse } from '../core/validation-middleware.js';
 import type { McpToolResponse } from '../types/mcp-types.js';
 
 export const AhkAnalyzeArgsSchema = z.object({
-  code: z.string().min(1, 'AutoHotkey code is required'),
+  code: z.string().min(1, 'AutoHotkey code is required').optional(),
+  filePath: z
+    .string()
+    .optional()
+    .describe('Path to .ahk file to analyze (defaults to active file when code omitted)'),
   includeDocumentation: z.boolean().optional().default(true),
   includeUsageExamples: z.boolean().optional().default(false),
   analyzeComplexity: z.boolean().optional().default(false),
@@ -28,13 +34,17 @@ export const AhkAnalyzeArgsSchema = z.object({
 export const ahkAnalyzeToolDefinition = {
   name: 'AHK_Analyze',
   description: `Ahk analyze
-Analyzes AutoHotkey v2 scripts and provides contextual information about functions, variables, classes, and other elements used in the code.`,
+Analyzes AutoHotkey v2 scripts and provides contextual information about functions, variables, classes, and other elements used in the code. Accepts direct code or a file path (falls back to active file).`,
   inputSchema: {
     type: 'object',
     properties: {
       code: {
         type: 'string',
-        description: 'AutoHotkey code is required',
+        description: 'AutoHotkey code to analyze',
+      },
+      filePath: {
+        type: 'string',
+        description: 'Path to .ahk file to analyze (defaults to active file when code omitted)',
       },
       includeDocumentation: {
         type: 'boolean',
@@ -69,7 +79,7 @@ Analyzes AutoHotkey v2 scripts and provides contextual information about functio
         default: false,
       },
     },
-    required: ['code'],
+    required: [],
   },
 };
 
@@ -82,12 +92,46 @@ export class AhkAnalyzeTool {
       const validatedArgs = parsed.data;
       logger.info('Analyzing AutoHotkey script using new compiler system');
 
-      // Auto-detect any file paths in the code
-      if (validatedArgs.code) {
-        autoDetect(validatedArgs.code);
+      let codeToAnalyze = validatedArgs.code;
+      if (!codeToAnalyze) {
+        const fallbackPath = validatedArgs.filePath || activeFile.getActiveFile();
+        if (!fallbackPath) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Error: Provide `code` or `filePath`, or set an active file with AHK_File_Active.',
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const resolvedPath = path.resolve(fallbackPath);
+        if (!resolvedPath.toLowerCase().endsWith('.ahk')) {
+          return {
+            content: [
+              { type: 'text', text: `Error: File must have .ahk extension: ${resolvedPath}` },
+            ],
+            isError: true,
+          };
+        }
+
+        try {
+          await fs.access(resolvedPath);
+        } catch {
+          return {
+            content: [{ type: 'text', text: `Error: File not found: ${resolvedPath}` }],
+            isError: true,
+          };
+        }
+
+        codeToAnalyze = await fs.readFile(resolvedPath, 'utf-8');
       }
+
+      // Auto-detect any file paths in the code
+      autoDetect(codeToAnalyze);
       const {
-        code,
         includeDocumentation,
         includeUsageExamples,
         analyzeComplexity,
@@ -97,13 +141,13 @@ export class AhkAnalyzeTool {
       } = validatedArgs;
 
       // Use the new compiler system for comprehensive analysis
-      const compilerResults = AhkCompiler.analyze(code);
-      const statistics = AhkCompiler.getStatistics(code);
+      const compilerResults = AhkCompiler.analyze(codeToAnalyze);
+      const statistics = AhkCompiler.getStatistics(codeToAnalyze);
 
       // If summaryOnly is true, return minimal output
       if (summaryOnly) {
         const includeSyntaxIssues = !severityFilter || severityFilter.includes('warning');
-        const syntaxIssues = includeSyntaxIssues ? this.checkAhkV2Syntax(code) : [];
+        const syntaxIssues = includeSyntaxIssues ? this.checkAhkV2Syntax(codeToAnalyze) : [];
 
         const allDiagnostics: LintDiagnostic[] = compilerResults.diagnostics.data || [];
         const diagnostics = severityFilter?.length
@@ -179,7 +223,7 @@ export class AhkAnalyzeTool {
 
       // Enhanced Regex-based AutoHotkey v2 Syntax Checking
       const includeSyntaxIssues = !severityFilter || severityFilter.includes('warning');
-      let syntaxIssues = includeSyntaxIssues ? this.checkAhkV2Syntax(code) : [];
+      let syntaxIssues = includeSyntaxIssues ? this.checkAhkV2Syntax(codeToAnalyze) : [];
 
       // Apply maxIssues filter if specified
       if (maxIssues && maxIssues > 0) {
@@ -243,7 +287,7 @@ export class AhkAnalyzeTool {
         report +=
           '- Consider organizing code into functions for better structure and reusability\n';
       }
-      if (!code.includes('#Requires AutoHotkey v2')) {
+      if (!codeToAnalyze.includes('#Requires AutoHotkey v2')) {
         report += '- Add "#Requires AutoHotkey v2" directive at the top of your script\n';
       }
 

@@ -5,6 +5,8 @@
  * These types ensure compliance with the MCP specification.
  */
 
+import type { ErrorMetadata } from '../core/error-types.js';
+
 /**
  * Content item types supported by MCP
  */
@@ -29,10 +31,13 @@ export interface McpContentItem {
  */
 export interface McpToolResponse {
   content: McpContentItem[];
+  isError?: boolean;
   _meta?: {
     toolName?: string;
     duration?: number;
     cached?: boolean;
+    error?: ErrorMetadata;
+    [key: string]: unknown;
   };
 }
 

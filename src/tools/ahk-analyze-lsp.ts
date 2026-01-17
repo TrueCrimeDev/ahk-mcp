@@ -1,9 +1,13 @@
+import fs from 'fs/promises';
+import path from 'path';
 import { AhkDiagnosticProvider } from '../lsp/diagnostics.js';
 import { AhkCompiler } from '../compiler/ahk-compiler.js';
 import { AhkFixService } from '../lsp/fix-service.js';
+import { activeFile } from '../core/active-file.js';
 
 interface LspArgs {
-  code: string;
+  code?: string;
+  filePath?: string;
   mode?: 'analyze' | 'fix';
   fixLevel?: 'safe' | 'style-only' | 'aggressive';
   autoFix?: boolean;
@@ -13,13 +17,18 @@ interface LspArgs {
 
 export const ahkLspToolDefinition = {
   name: 'AHK_LSP',
-  description: 'Provides LSP-like analysis and auto-fixing for AutoHotkey v2 code.',
+  description:
+    'Provides LSP-like analysis and auto-fixing for AutoHotkey v2 code. Accepts direct code or a file path (falls back to active file).',
   inputSchema: {
     type: 'object',
     properties: {
       code: {
         type: 'string',
         description: 'The AutoHotkey v2 code to analyze or fix',
+      },
+      filePath: {
+        type: 'string',
+        description: 'Path to .ahk file to analyze (defaults to active file when code omitted)',
       },
       mode: {
         type: 'string',
@@ -49,13 +58,14 @@ export const ahkLspToolDefinition = {
         default: false,
       },
     },
-    required: ['code'],
+    required: [],
   },
 };
 
 export class AhkLspTool {
   name = 'AHK_LSP';
-  description = 'Provides LSP-like analysis and auto-fixing for AutoHotkey v2 code.';
+  description =
+    'Provides LSP-like analysis and auto-fixing for AutoHotkey v2 code. Accepts direct code or a file path (falls back to active file).';
 
   private diagnosticProvider: AhkDiagnosticProvider;
   private fixService: AhkFixService;
@@ -65,10 +75,47 @@ export class AhkLspTool {
     this.fixService = new AhkFixService();
   }
 
-  async execute(args: LspArgs): Promise<{ content: Array<{ type: string; text: string }> }> {
+  async execute(
+    args: LspArgs
+  ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
     const mode = args.mode || 'analyze';
     const fixLevel = args.fixLevel || 'safe';
-    const code = args.code;
+    let code = args.code;
+    if (!code) {
+      const fallbackPath = args.filePath || activeFile.getActiveFile();
+      if (!fallbackPath) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Error: Provide `code` or `filePath`, or set an active file with AHK_File_Active.',
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const resolvedPath = path.resolve(fallbackPath);
+      if (!resolvedPath.toLowerCase().endsWith('.ahk')) {
+        return {
+          content: [
+            { type: 'text', text: `Error: File must have .ahk extension: ${resolvedPath}` },
+          ],
+          isError: true,
+        };
+      }
+
+      try {
+        await fs.access(resolvedPath);
+      } catch {
+        return {
+          content: [{ type: 'text', text: `Error: File not found: ${resolvedPath}` }],
+          isError: true,
+        };
+      }
+
+      code = await fs.readFile(resolvedPath, 'utf-8');
+    }
 
     // 1. Get Diagnostics
     const diagnostics = await this.diagnosticProvider.getDiagnostics(code);

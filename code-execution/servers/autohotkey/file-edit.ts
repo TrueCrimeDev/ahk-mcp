@@ -115,6 +115,11 @@ Shows a DRY RUN report instead of touching the file.
       "type": "boolean",
       "default": false,
       "description": "Preview changes without modifying file. Shows affected lines and change count."
+    },
+    "validate": {
+      "type": "boolean",
+      "default": false,
+      "description": "Validate AHK code before writing. Blocks edit if syntax errors are found."
     }
   }
 }

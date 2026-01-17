@@ -3,8 +3,10 @@
 
 export * as analytics from './analytics.js';
 export * as analyzeCode from './analyze-code.js';
+export * as cloudValidate from './cloud-validate.js';
 export * as config from './config.js';
 export * as contextInjector from './context-injector.js';
+export * as debugDbgp from './debug-dbgp.js';
 export * as docSearch from './doc-search.js';
 export * as fileActive from './file-active.js';
 export * as fileCreate from './file-create.js';
@@ -18,6 +20,7 @@ export * as fileView from './file-view.js';
 export * as libraryImport from './library-import.js';
 export * as libraryInfo from './library-info.js';
 export * as libraryList from './library-list.js';
+export * as librarySearch from './library-search.js';
 export * as lint from './lint.js';
 export * as lsp from './lsp.js';
 export * as processRequest from './process-request.js';

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import fs from 'fs/promises';
+import path from 'path';
 import { AhkAnalyzeTool } from './ahk-analyze-code.js';
 import { AhkVSCodeProblemsTool } from './ahk-analyze-vscode.js';
 import { AhkDiagnosticProvider } from '../lsp/diagnostics.js';
@@ -6,12 +8,17 @@ import { AhkFixService } from '../lsp/fix-service.js';
 import { AhkCompiler } from '../compiler/ahk-compiler.js';
 import logger from '../logger.js';
 import { safeParse } from '../core/validation-middleware.js';
+import { activeFile } from '../core/active-file.js';
 import type { Diagnostic } from '../types/index.js';
 import { DiagnosticSeverity } from '../types/index.js';
 import type { McpToolResponse } from '../types/mcp-types.js';
 
 export const AhkAnalyzeUnifiedArgsSchema = z.object({
-  code: z.string().min(1, 'AutoHotkey code is required'),
+  code: z.string().min(1, 'AutoHotkey code is required').optional(),
+  filePath: z
+    .string()
+    .optional()
+    .describe('Path to .ahk file to analyze (defaults to active file when code omitted)'),
   mode: z.enum(['quick', 'deep', 'fix', 'complete', 'vscode']).default('quick'),
 
   // Analysis options
@@ -41,6 +48,7 @@ export const ahkAnalyzeUnifiedToolDefinition = {
   description: `Unified AutoHotkey Code Analysis & Improvement Tool
 
 Combines analysis, diagnostics, auto-fixing, and VS Code integration into one powerful tool.
+Accepts direct code or a file path (falls back to active file).
 
 **Modes:**
 - \`quick\`: Fast diagnostics and basic analysis
@@ -56,6 +64,10 @@ Combines analysis, diagnostics, auto-fixing, and VS Code integration into one po
       code: {
         type: 'string',
         description: 'AutoHotkey v2 code to analyze',
+      },
+      filePath: {
+        type: 'string',
+        description: 'Path to .ahk file to analyze (defaults to active file when code omitted)',
       },
       mode: {
         type: 'string',
@@ -122,7 +134,7 @@ Combines analysis, diagnostics, auto-fixing, and VS Code integration into one po
         default: 'detailed',
       },
     },
-    required: ['code'],
+    required: [],
   },
 };
 
@@ -179,13 +191,62 @@ export class AhkAnalyzeUnifiedTool {
 
     try {
       const validatedArgs = parsed.data;
+      let codeToAnalyze = validatedArgs.code;
+      if (!codeToAnalyze) {
+        const fallbackPath = validatedArgs.filePath || activeFile.getActiveFile();
+        if (!fallbackPath) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Error: Provide `code` or `filePath`, or set an active file with AHK_File_Active.',
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const resolvedPath = path.resolve(fallbackPath);
+        if (!resolvedPath.toLowerCase().endsWith('.ahk')) {
+          return {
+            content: [
+              { type: 'text', text: `Error: File must have .ahk extension: ${resolvedPath}` },
+            ],
+            isError: true,
+          };
+        }
+
+        try {
+          await fs.access(resolvedPath);
+        } catch {
+          return {
+            content: [{ type: 'text', text: `Error: File not found: ${resolvedPath}` }],
+            isError: true,
+          };
+        }
+
+        codeToAnalyze = await fs.readFile(resolvedPath, 'utf-8');
+      }
+
+      if (!codeToAnalyze) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Error: Provide `code` or `filePath`, or set an active file with AHK_File_Active.',
+            },
+          ],
+          isError: true,
+        };
+      }
+
       const { mode } = validatedArgs;
 
       logger.info(`Running unified AHK analysis in ${mode} mode`);
 
       // Create a version with all defaults applied for strict typing
       const argsWithDefaults = {
-        code: validatedArgs.code,
+        code: codeToAnalyze,
         mode: validatedArgs.mode ?? ('quick' as const),
         includeDocumentation: validatedArgs.includeDocumentation ?? true,
         includeUsageExamples: validatedArgs.includeUsageExamples ?? false,
@@ -227,7 +288,7 @@ export class AhkAnalyzeUnifiedTool {
   }
 
   private async runUnifiedAnalysis(
-    args: z.infer<typeof AhkAnalyzeUnifiedArgsSchema>
+    args: Omit<z.infer<typeof AhkAnalyzeUnifiedArgsSchema>, 'code'> & { code: string }
   ): Promise<UnifiedAnalysisResult> {
     const result: UnifiedAnalysisResult = {
       mode: args.mode,

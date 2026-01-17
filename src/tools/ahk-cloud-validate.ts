@@ -12,6 +12,7 @@ import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
 import logger from '../logger.js';
+import { activeFile } from '../core/active-file.js';
 import { safeParse } from '../core/validation-middleware.js';
 import { createErrorResponse } from '../utils/response-helpers.js';
 
@@ -25,7 +26,10 @@ export const AhkCloudValidateArgsSchema = z.object({
 
   code: z.string().optional().describe('AHK v2 code to validate (required for validate mode)'),
 
-  filePath: z.string().optional().describe('Path to .ahk file to watch (required for watch mode)'),
+  filePath: z
+    .string()
+    .optional()
+    .describe('Path to .ahk file to validate or watch (required for watch mode)'),
 
   enabled: z.boolean().default(true).describe('Enable/disable watcher (watch mode only)'),
 
@@ -56,6 +60,7 @@ export const ahkCloudValidateToolDefinition = {
 
 **Examples:**
 - Validate code: \`{ "code": "MsgBox(\\"Hi\\")\\nExitApp" }\`
+- Validate file: \`{ "filePath": "C:\\\\Scripts\\\\test.ahk" }\`
 - Start watching: \`{ "mode": "watch", "filePath": "C:\\\\Scripts\\\\test.ahk" }\`
 - Stop watching: \`{ "mode": "watch", "enabled": false }\`
 
@@ -79,7 +84,7 @@ export const ahkCloudValidateToolDefinition = {
       },
       filePath: {
         type: 'string',
-        description: 'Path to .ahk file to watch (for watch mode)',
+        description: 'Path to .ahk file to validate or watch',
       },
       enabled: {
         type: 'boolean',
@@ -579,18 +584,19 @@ export class AhkCloudValidateTool {
       }
 
       // Validate file path
-      if (!filePath.toLowerCase().endsWith('.ahk')) {
+      const resolvedPath = path.resolve(filePath);
+      if (!resolvedPath.toLowerCase().endsWith('.ahk')) {
         return createErrorResponse('File must have .ahk extension');
       }
 
       try {
-        await fs.access(filePath);
+        await fs.access(resolvedPath);
       } catch {
-        return createErrorResponse(`File not found: ${filePath}`);
+        return createErrorResponse(`File not found: ${resolvedPath}`);
       }
 
       // Start watching
-      this.startWatch(filePath, ahkPath, timeout ?? 5000);
+      this.startWatch(resolvedPath, ahkPath, timeout ?? 5000);
 
       return {
         content: [
@@ -598,7 +604,7 @@ export class AhkCloudValidateTool {
             type: 'text',
             text:
               `**Watch Mode Started**\n\n` +
-              `- File: \`${filePath}\`\n` +
+              `- File: \`${resolvedPath}\`\n` +
               `- Auto-validates on every save\n` +
               `- Timeout: ${timeout}ms\n\n` +
               `Use \`{ "mode": "watch", "enabled": false }\` to stop.`,
@@ -608,11 +614,28 @@ export class AhkCloudValidateTool {
     }
 
     // Handle validate mode (one-shot)
-    if (!code) {
-      return createErrorResponse('Code is required for validate mode');
+    let codeToValidate = code;
+    if (!codeToValidate) {
+      const fallbackPath = filePath || activeFile.getActiveFile();
+      if (!fallbackPath) {
+        return createErrorResponse('Code or filePath is required for validate mode');
+      }
+
+      const resolvedPath = path.resolve(fallbackPath);
+      if (!resolvedPath.toLowerCase().endsWith('.ahk')) {
+        return createErrorResponse('File must have .ahk extension');
+      }
+
+      try {
+        await fs.access(resolvedPath);
+      } catch {
+        return createErrorResponse(`File not found: ${resolvedPath}`);
+      }
+
+      codeToValidate = await fs.readFile(resolvedPath, 'utf-8');
     }
 
-    const result = await this.validateCode(code, ahkPath, timeout ?? 5000);
+    const result = await this.validateCode(codeToValidate, ahkPath, timeout ?? 5000);
     const textOutput = this.formatResult(result);
 
     logger.info(`Validate: ${result.summary}`);

@@ -61,7 +61,7 @@ class ToolSettingsManager {
                 AHK_LSP: true,
                 AHK_Settings: true,
                 AHK_VSCode_Open: true,
-                AHK_THQBY_Document_Symbols: true
+                AHK_THQBY_Document_Symbols: true,
             },
             // Global settings
             allowFileEditing: true,
@@ -76,7 +76,7 @@ class ToolSettingsManager {
             autoOpenInVsCodeAfterEdit: true,
             // External tooling
             thqbyLspServerPath: '',
-            thqbyLspNodePath: ''
+            thqbyLspNodePath: '',
         };
     }
     loadSettings() {
@@ -180,7 +180,7 @@ class ToolSettingsManager {
             'AHK_File_Active',
             'AHK_File_Create',
             'AHK_Process_Request',
-            'AHK_Alpha'
+            'AHK_Alpha',
         ];
         for (const tool of fileTools) {
             this.settings.enabledTools[tool] = enabled;
@@ -214,7 +214,13 @@ class ToolSettingsManager {
             return `⚠️ Tool '${toolName}' is currently disabled.\n\nTo enable it, use the 'AHK_Settings' tool:\n\`\`\`json\n{\n  "tool": "AHK_Settings",\n  "arguments": {\n    "action": "enable_tool",\n    "tool": "${toolName}"\n  }\n}\n\`\`\``;
         }
         if (!this.settings.allowFileEditing &&
-            ['AHK_File_Edit', 'AHK_File_Edit_Diff', 'AHK_File_Edit_Small', 'AHK_File_Edit_Advanced', 'AHK_File_Create'].includes(toolName)) {
+            [
+                'AHK_File_Edit',
+                'AHK_File_Edit_Diff',
+                'AHK_File_Edit_Small',
+                'AHK_File_Edit_Advanced',
+                'AHK_File_Create',
+            ].includes(toolName)) {
             return `⚠️ File editing is currently disabled.\n\nTo enable it, use the 'AHK_Settings' tool:\n\`\`\`json\n{\n  "tool": "AHK_Settings",\n  "arguments": {\n    "action": "enable_editing"\n  }\n}\n\`\`\``;
         }
         return '';
@@ -231,7 +237,7 @@ export function checkToolAvailability(toolName) {
     if (!enabled) {
         return {
             enabled: false,
-            message: toolSettings.getDisabledMessage(toolName)
+            message: toolSettings.getDisabledMessage(toolName),
         };
     }
     return { enabled: true };

@@ -1,12 +1,18 @@
 import { z } from 'zod';
+import fs from 'fs/promises';
+import path from 'path';
 import { AhkDiagnosticProvider } from '../lsp/diagnostics.js';
 import logger from '../logger.js';
-import { autoDetect } from '../core/active-file.js';
+import { activeFile, autoDetect } from '../core/active-file.js';
 import { safeParse } from '../core/validation-middleware.js';
 
 // Zod schema for tool arguments
 export const AhkDiagnosticsArgsSchema = z.object({
-  code: z.string().describe('The AutoHotkey v2 code to analyze'),
+  code: z.string().optional().describe('The AutoHotkey v2 code to analyze'),
+  filePath: z
+    .string()
+    .optional()
+    .describe('Path to .ahk file to analyze (defaults to active file when code omitted)'),
   enableClaudeStandards: z
     .boolean()
     .optional()
@@ -22,13 +28,17 @@ export const AhkDiagnosticsArgsSchema = z.object({
 export const ahkDiagnosticsToolDefinition = {
   name: 'AHK_Diagnostics',
   description: `Ahk diagnostics
-Validates AutoHotkey v2 code syntax and enforces coding standards with detailed error reporting`,
+Validates AutoHotkey v2 code syntax and enforces coding standards with detailed error reporting. Accepts direct code or a file path (falls back to active file).`,
   inputSchema: {
     type: 'object',
     properties: {
       code: {
         type: 'string',
-        description: 'The AutoHotkey v2 code to analyze',
+        description: 'AutoHotkey v2 code to analyze',
+      },
+      filePath: {
+        type: 'string',
+        description: 'Path to .ahk file to analyze (defaults to active file when code omitted)',
       },
       enableClaudeStandards: {
         type: 'boolean',
@@ -42,7 +52,7 @@ Validates AutoHotkey v2 code syntax and enforces coding standards with detailed 
         default: 'all',
       },
     },
-    required: ['code'],
+    required: [],
   },
 };
 
@@ -68,14 +78,49 @@ export class AhkDiagnosticsTool {
         `Running AutoHotkey diagnostics with Claude standards: ${validatedArgs.enableClaudeStandards}, severity filter: ${validatedArgs.severity}`
       );
 
-      // Auto-detect any file paths in the code (in case user pasted a path)
-      if (validatedArgs.code) {
-        autoDetect(validatedArgs.code);
+      let codeToAnalyze = validatedArgs.code;
+      if (!codeToAnalyze) {
+        const fallbackPath = validatedArgs.filePath || activeFile.getActiveFile();
+        if (!fallbackPath) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: '❌ Error: Provide `code` or `filePath`, or set an active file with AHK_File_Active.',
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const resolvedPath = path.resolve(fallbackPath);
+        if (!resolvedPath.toLowerCase().endsWith('.ahk')) {
+          return {
+            content: [
+              { type: 'text', text: `❌ Error: File must have .ahk extension: ${resolvedPath}` },
+            ],
+            isError: true,
+          };
+        }
+
+        try {
+          await fs.access(resolvedPath);
+        } catch {
+          return {
+            content: [{ type: 'text', text: `❌ Error: File not found: ${resolvedPath}` }],
+            isError: true,
+          };
+        }
+
+        codeToAnalyze = await fs.readFile(resolvedPath, 'utf-8');
       }
+
+      // Auto-detect any file paths in the code (in case user pasted a path)
+      autoDetect(codeToAnalyze);
 
       // Get diagnostics from provider
       const diagnostics = await this.diagnosticProvider.getDiagnostics(
-        validatedArgs.code,
+        codeToAnalyze,
         validatedArgs.enableClaudeStandards,
         validatedArgs.severity
       );

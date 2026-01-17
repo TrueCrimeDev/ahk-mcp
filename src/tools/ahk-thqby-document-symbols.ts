@@ -1,12 +1,19 @@
 import { z } from 'zod';
+import fs from 'fs/promises';
+import path from 'path';
 import logger from '../logger.js';
 import { safeParse } from '../core/validation-middleware.js';
 import { checkToolAvailability } from '../core/tool-settings.js';
 import { createErrorResponse } from '../utils/response-helpers.js';
 import { requestDocumentSymbols } from '../utils/thqby-lsp-client.js';
+import { activeFile } from '../core/active-file.js';
 
 export const AhkThqbyDocumentSymbolsArgsSchema = z.object({
-  code: z.string().min(1, 'code is required').describe('AutoHotkey v2 source code to analyze'),
+  code: z
+    .string()
+    .min(1, 'code is required')
+    .optional()
+    .describe('AutoHotkey v2 source code to analyze'),
   filePath: z
     .string()
     .optional()
@@ -23,7 +30,7 @@ export type AhkThqbyDocumentSymbolsArgs = z.infer<typeof AhkThqbyDocumentSymbols
 
 export const ahkThqbyDocumentSymbolsToolDefinition = {
   name: 'AHK_THQBY_Document_Symbols',
-  description: `Document symbols via THQBY AutoHotkey v2 LSP (vscode-autohotkey2-lsp). Returns classes, methods, functions, variables, hotkeys, and labels using the external LSP server.`,
+  description: `Document symbols via THQBY AutoHotkey v2 LSP (vscode-autohotkey2-lsp). Returns classes, methods, functions, variables, hotkeys, and labels using the external LSP server. Accepts direct code or a file path (falls back to active file).`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -42,7 +49,7 @@ export const ahkThqbyDocumentSymbolsToolDefinition = {
         description: 'Timeout in milliseconds (default 15000)',
       },
     },
-    required: ['code'],
+    required: [],
   },
 };
 
@@ -59,9 +66,32 @@ export class AhkThqbyDocumentSymbolsTool {
     }
 
     try {
-      const { code, filePath, timeoutMs } = parsed.data;
+      let { code, filePath, timeoutMs } = parsed.data;
       if (filePath && !filePath.toLowerCase().endsWith('.ahk')) {
         return createErrorResponse('filePath must end with .ahk');
+      }
+
+      if (!code) {
+        const fallbackPath = filePath || activeFile.getActiveFile();
+        if (!fallbackPath) {
+          return createErrorResponse(
+            'Provide `code` or `filePath`, or set an active file with AHK_File_Active.'
+          );
+        }
+
+        const resolvedPath = path.resolve(fallbackPath);
+        if (!resolvedPath.toLowerCase().endsWith('.ahk')) {
+          return createErrorResponse('filePath must end with .ahk');
+        }
+
+        try {
+          await fs.access(resolvedPath);
+        } catch {
+          return createErrorResponse(`File not found: ${resolvedPath}`);
+        }
+
+        code = await fs.readFile(resolvedPath, 'utf-8');
+        filePath = resolvedPath;
       }
 
       const result = await requestDocumentSymbols(code, filePath, { timeoutMs });

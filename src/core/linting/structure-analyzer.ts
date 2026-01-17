@@ -467,19 +467,8 @@ export class StructureAnalyzer {
   private calculateComplexity(content: string): number {
     let complexity = 1; // Base complexity
 
-    // Count decision points
-    const decisionKeywords = [
-      'if',
-      'else',
-      'while',
-      'for',
-      'loop',
-      'switch',
-      'case',
-      '&&',
-      '||',
-      '?',
-    ];
+    // Count decision keywords (use word boundaries for keywords)
+    const decisionKeywords = ['if', 'else', 'while', 'for', 'loop', 'switch', 'case'];
 
     for (const keyword of decisionKeywords) {
       const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
@@ -488,6 +477,15 @@ export class StructureAnalyzer {
         complexity += matches.length;
       }
     }
+
+    // Count operators separately (no word boundaries needed)
+    const andMatches = content.match(/&&/g);
+    const orMatches = content.match(/\|\|/g);
+    const ternaryMatches = content.match(/\?[^:]*:/g); // Ternary operator pattern
+
+    if (andMatches) complexity += andMatches.length;
+    if (orMatches) complexity += orMatches.length;
+    if (ternaryMatches) complexity += ternaryMatches.length;
 
     return complexity;
   }

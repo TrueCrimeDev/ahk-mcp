@@ -124,6 +124,9 @@ export class AhkWorkflowAnalyzeFixRunTool {
         issuesFixed: 0,
         verificationPassed: false,
         scriptRan: false,
+        scriptFailed: false,
+        scriptError: '',
+        issues: [] as Array<{ severity: string; message: string; line?: number }>,
       };
 
       // Step 1: Read the file
@@ -142,11 +145,12 @@ export class AhkWorkflowAnalyzeFixRunTool {
         };
       }
 
-      // Step 2: Analyze the file
+      // Step 2: Analyze the file (get full analysis to extract issues)
       const analyzeStart = Date.now();
       const analyzeResult = await this.analyzeTool.execute({
         code: fileContent,
-        summaryOnly: true, // Use summary mode for efficiency
+        summaryOnly: false, // Get full analysis to capture issues
+        maxIssues: 10, // Limit for token efficiency
       });
       const analyzeDuration = Date.now() - analyzeStart;
 
@@ -161,6 +165,25 @@ export class AhkWorkflowAnalyzeFixRunTool {
       const issuesMatch = analysisText.match(/"total":\s*(\d+)/);
       const totalIssues = issuesMatch ? parseInt(issuesMatch[1], 10) : 0;
       workflow.issuesFound = totalIssues;
+
+      // Try to extract individual issues from the analysis
+      // Look for patterns like "error:", "warning:", or issue objects
+      const issuePatterns = [
+        /(?:error|warning|info):\s*(.+?)(?:\n|$)/gi,
+        /line\s*(\d+):\s*(.+?)(?:\n|$)/gi,
+        /"message":\s*"([^"]+)"/g,
+      ];
+
+      for (const pattern of issuePatterns) {
+        let match;
+        while ((match = pattern.exec(analysisText)) !== null && workflow.issues.length < 5) {
+          const severity = match[0].toLowerCase().includes('error') ? 'error' : 'warning';
+          workflow.issues.push({
+            severity,
+            message: match[1] || match[2] || match[0],
+          });
+        }
+      }
 
       // If no issues and not running, return early
       if (totalIssues === 0 && !runAfterFix) {
@@ -272,20 +295,41 @@ export class AhkWorkflowAnalyzeFixRunTool {
           const runDuration = Date.now() - runStart;
           const runSuccess = !runResult.isError;
 
+          // Extract error details from run result
+          let runError = '';
+          if (!runSuccess) {
+            const runText = runResult.content?.map((c: any) => c.text).join('\n') || '';
+            // Look for exit code and stderr
+            const exitMatch = runText.match(/exit code:\s*(-?\d+)/i);
+            const stderrMatch = runText.match(/Error Output:\s*```\s*([\s\S]*?)```/);
+            if (exitMatch && exitMatch[1] !== '0') {
+              runError = `Exit code ${exitMatch[1]}`;
+            }
+            if (stderrMatch) {
+              runError += runError ? `: ${stderrMatch[1].trim()}` : stderrMatch[1].trim();
+            }
+          }
+
           workflow.steps.push({
             step: 'Run',
             duration: runDuration,
             status: runSuccess ? 'completed' : 'failed',
+            ...(runError ? { error: runError } : {}),
           });
 
           workflow.scriptRan = runSuccess;
+          workflow.scriptFailed = !runSuccess;
+          workflow.scriptError = runError;
         } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
           workflow.steps.push({
             step: 'Run',
             duration: Date.now() - runStart,
             status: 'failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMsg,
           });
+          workflow.scriptFailed = true;
+          workflow.scriptError = errorMsg;
         }
       }
 
@@ -318,17 +362,45 @@ export class AhkWorkflowAnalyzeFixRunTool {
   private formatSummary(workflow: any, summaryOnly: boolean): string {
     let summary = `# Workflow: Analyze → Fix → Run\n\n`;
 
-    summary += `## Summary\n`;
+    summary += `## Summary\n\n`;
     summary += `- **Total Duration:** ${workflow.totalDuration}ms\n`;
     summary += `- **Issues Found:** ${workflow.issuesFound}\n`;
     summary += `- **Issues Fixed:** ${workflow.issuesFixed}\n`;
     summary += `- **Verification:** ${workflow.verificationPassed ? 'Passed' : workflow.issuesFixed > 0 ? 'Some issues remain' : 'N/A'}\n`;
-    summary += `- **Script Ran:** ${workflow.scriptRan ? 'Yes' : 'No'}\n\n`;
+
+    // Show script status with failure details
+    if (workflow.scriptFailed) {
+      summary += `- **Script Ran:** ❌ Failed\n`;
+      if (workflow.scriptError) {
+        summary += `- **Error:** ${workflow.scriptError}\n`;
+      }
+    } else if (workflow.scriptRan) {
+      summary += `- **Script Ran:** ✅ Yes\n`;
+    } else {
+      summary += `- **Script Ran:** No\n`;
+    }
+
+    summary += '\n';
+
+    // Show issues preview when there are issues
+    if (workflow.issuesFound > 0 && workflow.issues && workflow.issues.length > 0) {
+      summary += `## Issues Preview (top ${Math.min(workflow.issues.length, 5)})\n\n`;
+      workflow.issues.slice(0, 5).forEach((issue: any, i: number) => {
+        const icon = issue.severity === 'error' ? '❌' : '⚠️';
+        summary += `${i + 1}. ${icon} ${issue.message}\n`;
+      });
+      if (workflow.issuesFound > 5) {
+        summary += `\n_...and ${workflow.issuesFound - 5} more issues_\n`;
+      }
+      summary += '\n';
+    }
 
     if (!summaryOnly) {
-      summary += `## Workflow Steps\n`;
+      summary += `## Workflow Steps\n\n`;
       workflow.steps.forEach((step: any) => {
-        summary += `### ${step.step}\n`;
+        const statusIcon =
+          step.status === 'completed' ? '✅' : step.status === 'failed' ? '❌' : '⏳';
+        summary += `### ${statusIcon} ${step.step}\n\n`;
         summary += `- **Duration:** ${step.duration}ms\n`;
         summary += `- **Status:** ${step.status}\n`;
 
@@ -346,8 +418,10 @@ export class AhkWorkflowAnalyzeFixRunTool {
       });
     }
 
-    summary += `## Next Steps\n`;
-    if (workflow.issuesFound === 0) {
+    summary += `## Next Steps\n\n`;
+    if (workflow.scriptFailed) {
+      summary += `Script execution failed. Check the error above and fix the issue.\n`;
+    } else if (workflow.issuesFound === 0) {
       summary += `No issues found! Your code is ready to use.\n`;
     } else if (workflow.issuesFixed === workflow.issuesFound) {
       summary += `All issues fixed! Run the script to test.\n`;

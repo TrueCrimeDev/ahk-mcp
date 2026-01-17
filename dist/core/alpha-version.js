@@ -50,7 +50,7 @@ export class AlphaVersionManager {
             const data = {
                 versions: Object.fromEntries(this.versionMap),
                 failures: Object.fromEntries(this.failureMap),
-                lastUpdated: new Date().toISOString()
+                lastUpdated: new Date().toISOString(),
             };
             fs.writeFileSync(statePath, JSON.stringify(data, null, 2), 'utf-8');
         }

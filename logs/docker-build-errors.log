@@ -345,7 +345,7 @@ Dockerfile:12
   14 |     # Copy source code
 
 --------------------
-
+a
 failed to solve: process "/bin/sh -c npm ci && npm cache clean --force" did not complete successfully: exit code: 1 
 
 

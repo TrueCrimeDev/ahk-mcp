@@ -8,13 +8,17 @@ export const metadata = {
   name: 'AHK_LSP',
   slug: 'lsp',
   category: 'lsp',
-  description: `Provides LSP-like analysis and auto-fixing for AutoHotkey v2 code.`,
+  description: `Provides LSP-like analysis and auto-fixing for AutoHotkey v2 code. Accepts direct code or a file path (falls back to active file).`,
   inputSchema: {
   "type": "object",
   "properties": {
     "code": {
       "type": "string",
       "description": "The AutoHotkey v2 code to analyze or fix"
+    },
+    "filePath": {
+      "type": "string",
+      "description": "Path to .ahk file to analyze (defaults to active file when code omitted)"
     },
     "mode": {
       "type": "string",
@@ -51,9 +55,7 @@ export const metadata = {
       "default": false
     }
   },
-  "required": [
-    "code"
-  ]
+  "required": []
 }
 } as const;
 

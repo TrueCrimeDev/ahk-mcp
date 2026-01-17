@@ -5,3 +5,4 @@ timeout /t 2 /nointerval >nul
 echo Starting Claude Desktop...
 start "" "%LOCALAPPDATA%\AnthropicClaude\claude.exe"
 echo Done.
+a

@@ -1,10 +1,18 @@
 /**
  * Validation middleware for centralized Zod error handling and consistent error responses
  * Provides utilities for validating tool arguments and formatting validation errors
+ * Now includes structured error metadata for client-side debugging.
  */
 
 import { z } from 'zod';
 import logger from '../logger.js';
+import {
+  ErrorCode,
+  ErrorCategory,
+  ErrorSeverity,
+  type ErrorCodeType,
+  type ErrorMetadata,
+} from './error-types.js';
 
 /**
  * Represents a formatted validation error
@@ -27,11 +35,15 @@ export interface ValidationResult<T> {
 }
 
 /**
- * MCP tool response format
+ * MCP tool response format with error metadata
  */
 export interface ToolResponse {
   content: Array<{ type: 'text'; text: string }>;
   isError?: boolean;
+  _meta?: {
+    error?: ErrorMetadata;
+    [key: string]: unknown;
+  };
 }
 
 /**
@@ -118,7 +130,7 @@ export function validateWithSchema<T>(data: unknown, schema: z.ZodType<T>): Vali
 }
 
 /**
- * Create a formatted MCP error response from validation errors
+ * Create a formatted MCP error response from validation errors with full metadata
  *
  * @example
  * ```typescript
@@ -126,13 +138,26 @@ export function validateWithSchema<T>(data: unknown, schema: z.ZodType<T>): Vali
  * return response; // Ready to return from tool
  * ```
  */
-export function createValidationErrorResponse(errors: ValidationError[]): ToolResponse {
+export function createValidationErrorResponse(
+  errors: ValidationError[],
+  toolName?: string
+): ToolResponse {
   const errorList = errors
     .map((err, idx) => {
       const fieldLabel = err.field ? `**${err.field}**: ` : '';
       return `${idx + 1}. ${fieldLabel}${err.message} (${err.code})`;
     })
     .join('\n');
+
+  // Determine specific error code based on error types
+  let errorCode: ErrorCodeType = ErrorCode.VALIDATION_FAILED;
+  if (errors.some(e => e.message.includes('Required'))) {
+    errorCode = ErrorCode.MISSING_REQUIRED;
+  } else if (errors.some(e => e.code === 'Type mismatch')) {
+    errorCode = ErrorCode.INVALID_TYPE;
+  } else if (errors.some(e => e.code === 'Not a valid enum value')) {
+    errorCode = ErrorCode.INVALID_ENUM;
+  }
 
   const content: Array<{ type: 'text'; text: string }> = [
     {
@@ -141,9 +166,29 @@ export function createValidationErrorResponse(errors: ValidationError[]): ToolRe
     },
   ];
 
+  // Build recovery suggestions
+  const recoverySuggestions: string[] = [
+    'Check that all required fields are provided',
+    'Verify parameter types match the expected schema',
+  ];
+
   // Add helpful hint if there are common errors
   const hasTypeErrors = errors.some(e => e.code === 'Type mismatch');
   const hasMissingFields = errors.some(e => e.message.includes('Required'));
+
+  if (hasTypeErrors) {
+    recoverySuggestions.push(
+      'Ensure values have the correct data type (string, number, boolean, etc.)'
+    );
+  }
+
+  if (hasMissingFields) {
+    const missingFields = errors
+      .filter(e => e.message.includes('Required'))
+      .map(e => e.field)
+      .join(', ');
+    recoverySuggestions.push(`Provide values for missing fields: ${missingFields}`);
+  }
 
   if (hasTypeErrors || hasMissingFields) {
     content.push({
@@ -152,9 +197,34 @@ export function createValidationErrorResponse(errors: ValidationError[]): ToolRe
     });
   }
 
+  // Build context with all field errors
+  const fieldErrors: Record<string, string> = {};
+  errors.forEach(err => {
+    fieldErrors[err.field] = `${err.message} (${err.code})`;
+  });
+
   return {
     content,
     isError: true,
+    _meta: {
+      error: {
+        errorCode,
+        category: ErrorCategory.VALIDATION,
+        severity: ErrorSeverity.ERROR,
+        recoverable: true,
+        title: 'Validation Error',
+        description: `${errors.length} validation error(s) found`,
+        recovery: recoverySuggestions,
+        context: {
+          details: {
+            errorCount: errors.length,
+            fields: fieldErrors,
+          },
+        },
+        timestamp: new Date().toISOString(),
+        ...(toolName && { toolName }),
+      },
+    },
   };
 }
 
@@ -192,7 +262,7 @@ export function safeParse<T>(
 
   return {
     success: false,
-    error: createValidationErrorResponse(result.errors || []),
+    error: createValidationErrorResponse(result.errors || [], toolName),
   };
 }
 
@@ -218,10 +288,11 @@ export function validateArgs<T>(schema: z.ZodType<T>) {
 
     descriptor.value = async function (this: any, args: unknown): Promise<ToolResponse> {
       const result = validateWithSchema(args, schema);
+      const toolName = this.constructor.name || 'Unknown Tool';
 
       if (!result.success) {
-        logger.warn(`${this.constructor.name}.${propertyKey} validation failed`);
-        return createValidationErrorResponse(result.errors || []);
+        logger.warn(`${toolName}.${propertyKey} validation failed`);
+        return createValidationErrorResponse(result.errors || [], toolName);
       }
 
       // Call original method with validated args

@@ -48,7 +48,7 @@ export class AhkParser {
         }
         const document = {
             type: 'document',
-            body
+            body,
         };
         return {
             document,
@@ -57,7 +57,7 @@ export class AhkParser {
             variables,
             hotkeys,
             directives,
-            comments
+            comments,
         };
     }
     isComment(line) {
@@ -92,7 +92,7 @@ export class AhkParser {
             start: this.getLineStart(lineNumber),
             end: this.getLineEnd(lineNumber),
             line: lineNumber,
-            column: 0
+            column: 0,
         };
     }
     parseDirective(line, lineNumber) {
@@ -104,7 +104,7 @@ export class AhkParser {
             start: this.getLineStart(lineNumber),
             end: this.getLineEnd(lineNumber),
             line: lineNumber,
-            column: 0
+            column: 0,
         };
     }
     parseFunction(startLine) {
@@ -139,7 +139,7 @@ export class AhkParser {
             start: this.getLineStart(startLine),
             end: this.getLineEnd(endLine),
             line: startLine,
-            column: 0
+            column: 0,
         };
     }
     parseClass(startLine) {
@@ -174,7 +174,7 @@ export class AhkParser {
             start: this.getLineStart(startLine),
             end: this.getLineEnd(endLine),
             line: startLine,
-            column: 0
+            column: 0,
         };
     }
     parseVariable(line, lineNumber) {
@@ -192,7 +192,7 @@ export class AhkParser {
             start: this.getLineStart(lineNumber),
             end: this.getLineEnd(lineNumber),
             line: lineNumber,
-            column: 0
+            column: 0,
         };
     }
     parseHotkey(line, lineNumber) {
@@ -209,7 +209,7 @@ export class AhkParser {
             '^': 'Ctrl',
             '!': 'Alt',
             '+': 'Shift',
-            '#': 'Win'
+            '#': 'Win',
         };
         for (const [symbol, name] of Object.entries(modifierMap)) {
             if (key.includes(symbol)) {
@@ -225,7 +225,7 @@ export class AhkParser {
             start: this.getLineStart(lineNumber),
             end: this.getLineEnd(lineNumber),
             line: lineNumber,
-            column: 0
+            column: 0,
         };
     }
     parseParameters(paramString) {
@@ -239,7 +239,7 @@ export class AhkParser {
             return {
                 name,
                 defaultValue,
-                isOptional: !!defaultValue
+                isOptional: !!defaultValue,
             };
         });
     }
@@ -280,8 +280,8 @@ export class AhkParser {
             type: 'identifier', // Could be enhanced with context analysis
             range: {
                 start: { line: position.line, character: start },
-                end: { line: position.line, character: end }
-            }
+                end: { line: position.line, character: end },
+            },
         };
     }
 }

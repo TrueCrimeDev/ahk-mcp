@@ -9,13 +9,17 @@ export const metadata = {
   slug: 'analyze-code',
   category: 'analysis',
   description: `Ahk analyze
-Analyzes AutoHotkey v2 scripts and provides contextual information about functions, variables, classes, and other elements used in the code.`,
+Analyzes AutoHotkey v2 scripts and provides contextual information about functions, variables, classes, and other elements used in the code. Accepts direct code or a file path (falls back to active file).`,
   inputSchema: {
   "type": "object",
   "properties": {
     "code": {
       "type": "string",
-      "description": "AutoHotkey code is required"
+      "description": "AutoHotkey code to analyze"
+    },
+    "filePath": {
+      "type": "string",
+      "description": "Path to .ahk file to analyze (defaults to active file when code omitted)"
     },
     "includeDocumentation": {
       "type": "boolean",
@@ -54,9 +58,7 @@ Analyzes AutoHotkey v2 scripts and provides contextual information about functio
       "default": false
     }
   },
-  "required": [
-    "code"
-  ]
+  "required": []
 }
 } as const;
 

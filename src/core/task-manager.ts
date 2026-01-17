@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import logger from '../logger.js';
 import type { ToolResponse } from './server-interface.js';
+import { ErrorCode, ErrorCategory, ErrorSeverity } from './error-types.js';
 
 export type TaskStatus = 'working' | 'completed' | 'failed' | 'canceled';
 
@@ -164,10 +165,26 @@ export class TaskManager {
     return { taskId, status, statusMessage, createdAt, lastUpdatedAt, ttl, pollInterval };
   }
 
-  private createErrorResult(message: string): ToolResponse {
+  private createErrorResult(message: string, taskId?: string): ToolResponse {
     return {
       content: [{ type: 'text', text: `Error: ${message}` }],
       isError: true,
+      _meta: {
+        error: {
+          errorCode: ErrorCode.TOOL_EXECUTION_FAILED,
+          category: ErrorCategory.TOOL,
+          severity: ErrorSeverity.ERROR,
+          recoverable: false,
+          title: 'Task Error',
+          description: message,
+          timestamp: new Date().toISOString(),
+          ...(taskId && {
+            context: {
+              details: { taskId },
+            },
+          }),
+        },
+      },
     };
   }
 }

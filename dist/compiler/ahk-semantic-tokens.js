@@ -169,7 +169,7 @@ export class AhkSemanticTokenProvider {
             character: token.column,
             length: token.value.length,
             tokenType,
-            tokenModifiers: modifiers
+            tokenModifiers: modifiers,
         };
     }
     classifyIdentifier(token, index) {
@@ -205,41 +205,105 @@ export class AhkSemanticTokenProvider {
     }
     isDocumentationComment(comment) {
         // Check for documentation comment patterns
-        return comment.startsWith(';/**') ||
+        return (comment.startsWith(';/**') ||
             comment.startsWith(';///') ||
             comment.includes('@param') ||
             comment.includes('@return') ||
-            comment.includes('@description');
+            comment.includes('@description'));
     }
     isBuiltinFunction(name) {
         const builtins = [
             // Core functions
-            'MsgBox', 'Send', 'SendText', 'SendInput', 'SendPlay', 'SendRaw',
-            'Click', 'MouseMove', 'MouseClick', 'MouseClickDrag',
-            'Sleep', 'Random', 'SetTimer',
+            'MsgBox',
+            'Send',
+            'SendText',
+            'SendInput',
+            'SendPlay',
+            'SendRaw',
+            'Click',
+            'MouseMove',
+            'MouseClick',
+            'MouseClickDrag',
+            'Sleep',
+            'Random',
+            'SetTimer',
             // Window functions
-            'WinActivate', 'WinClose', 'WinExist', 'WinGetTitle', 'WinSetTitle',
-            'WinMove', 'WinRestore', 'WinMaximize', 'WinMinimize',
+            'WinActivate',
+            'WinClose',
+            'WinExist',
+            'WinGetTitle',
+            'WinSetTitle',
+            'WinMove',
+            'WinRestore',
+            'WinMaximize',
+            'WinMinimize',
             // File functions
-            'FileRead', 'FileWrite', 'FileAppend', 'FileDelete', 'FileCopy',
-            'FileMove', 'FileExist', 'FileGetSize', 'FileGetTime',
+            'FileRead',
+            'FileWrite',
+            'FileAppend',
+            'FileDelete',
+            'FileCopy',
+            'FileMove',
+            'FileExist',
+            'FileGetSize',
+            'FileGetTime',
             // String functions
-            'StrSplit', 'StrReplace', 'StrLower', 'StrUpper', 'StrTitle',
-            'SubStr', 'StrLen', 'Trim', 'LTrim', 'RTrim',
+            'StrSplit',
+            'StrReplace',
+            'StrLower',
+            'StrUpper',
+            'StrTitle',
+            'SubStr',
+            'StrLen',
+            'Trim',
+            'LTrim',
+            'RTrim',
             // Array/Object functions
-            'Array', 'Map', 'Object', 'IsObject',
+            'Array',
+            'Map',
+            'Object',
+            'IsObject',
             // GUI functions
-            'Gui', 'GuiCreate', 'GuiAdd', 'GuiShow', 'GuiClose',
+            'Gui',
+            'GuiCreate',
+            'GuiAdd',
+            'GuiShow',
+            'GuiClose',
             // System functions
-            'Run', 'RunWait', 'ExitApp', 'Reload', 'Suspend',
-            'ToolTip', 'TrayTip', 'SoundPlay', 'SoundBeep',
+            'Run',
+            'RunWait',
+            'ExitApp',
+            'Reload',
+            'Suspend',
+            'ToolTip',
+            'TrayTip',
+            'SoundPlay',
+            'SoundBeep',
             // Registry functions
-            'RegRead', 'RegWrite', 'RegDelete',
+            'RegRead',
+            'RegWrite',
+            'RegDelete',
             // Math functions
-            'Abs', 'Ceil', 'Floor', 'Round', 'Sqrt', 'Sin', 'Cos', 'Tan',
-            'Exp', 'Log', 'Ln', 'Max', 'Min', 'Mod',
+            'Abs',
+            'Ceil',
+            'Floor',
+            'Round',
+            'Sqrt',
+            'Sin',
+            'Cos',
+            'Tan',
+            'Exp',
+            'Log',
+            'Ln',
+            'Max',
+            'Min',
+            'Mod',
             // Conversion functions
-            'Chr', 'Ord', 'Format', 'Number', 'String'
+            'Chr',
+            'Ord',
+            'Format',
+            'Number',
+            'String',
         ];
         return builtins.includes(name);
     }
@@ -283,8 +347,7 @@ export class AhkSemanticTokenProvider {
                     // Found closing paren, check for opening brace
                     const nextAfterParen = i + 1 < this.tokens.length ? this.tokens[i + 1] : null;
                     return !!(nextAfterParen &&
-                        (nextAfterParen.type === TokenType.LBRACE ||
-                            nextAfterParen.type === TokenType.NEWLINE));
+                        (nextAfterParen.type === TokenType.LBRACE || nextAfterParen.type === TokenType.NEWLINE));
                 }
             }
         }

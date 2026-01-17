@@ -45,9 +45,9 @@ export const metadata = {
     "maxResults": {
       "type": "number",
       "minimum": 1,
-      "maximum": 2000,
-      "default": 200,
-      "description": "Maximum number of entries to return."
+      "maximum": 500,
+      "default": 30,
+      "description": "Maximum entries (default 50 for token efficiency)."
     },
     "maxDepth": {
       "type": "number",
@@ -65,6 +65,16 @@ export const metadata = {
       "type": "boolean",
       "default": true,
       "description": "Return absolute paths in results."
+    },
+    "outputFormat": {
+      "type": "string",
+      "enum": [
+        "compact",
+        "detailed",
+        "json"
+      ],
+      "default": "compact",
+      "description": "Output format: compact (paths only ~minimal tokens), detailed (with stats), json (full data)."
     }
   }
 }

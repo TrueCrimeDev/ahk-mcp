@@ -15,7 +15,7 @@ import { initializeDataLoader, getAhkIndex } from './core/loader.js';
 import logger from './logger.js';
 import { ToolRegistry } from './core/tool-registry.js';
 import { envConfig } from './core/env-config.js';
-import { createErrorResponse } from './utils/response-helpers.js';
+import { createErrorResponse, ErrorResponseBuilder, ErrorCode } from './utils/response-helpers.js';
 import { TaskManager } from './core/task-manager.js';
 
 import { logDebugEvent, logDebugError } from './debug-journal.js';
@@ -88,6 +88,7 @@ import {
   AhkCloudValidateTool,
   ahkCloudValidateToolDefinition,
 } from './tools/ahk-cloud-validate.js';
+import { AhkDebugDBGpTool, ahkDebugDBGpToolDefinition } from './tools/ahk-debug-dbgp.js';
 import { AHK_Library_List_Definition } from './tools/ahk-library-list.js';
 import { AHK_Library_Info_Definition } from './tools/ahk-library-info.js';
 import { AHK_Library_Import_Definition } from './tools/ahk-library-import.js';
@@ -141,6 +142,7 @@ export class AutoHotkeyMcpServer {
   public ahkThqbyDocumentSymbolsToolInstance: AhkThqbyDocumentSymbolsTool;
   public ahkLintToolInstance: AhkLintTool;
   public ahkCloudValidateToolInstance: AhkCloudValidateTool;
+  public ahkDebugDBGpToolInstance: AhkDebugDBGpTool;
 
   constructor() {
     this.server = new Server(
@@ -203,6 +205,7 @@ export class AutoHotkeyMcpServer {
     this.ahkThqbyDocumentSymbolsToolInstance = new AhkThqbyDocumentSymbolsTool();
     this.ahkLintToolInstance = new AhkLintTool();
     this.ahkCloudValidateToolInstance = new AhkCloudValidateTool();
+    this.ahkDebugDBGpToolInstance = new AhkDebugDBGpTool();
 
     this.toolRegistry = new ToolRegistry(this);
     this.taskManager = new TaskManager();
@@ -405,12 +408,16 @@ export class AutoHotkeyMcpServer {
       } catch (error) {
         // Unified logging: log error
         unifiedLog.toolError(callId, error instanceof Error ? error : new Error(String(error)));
-        const message = error instanceof Error ? error.message : String(error);
 
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          isError: true,
-        };
+        // Build rich error response with metadata
+        return ErrorResponseBuilder.fromError(error, ErrorCode.TOOL_EXECUTION_FAILED)
+          .tool(request.params.name)
+          .operation('tool execution')
+          .details({
+            toolName: request.params.name,
+            arguments: request.params.arguments,
+          })
+          .build();
       }
     });
   }

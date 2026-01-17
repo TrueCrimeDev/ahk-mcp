@@ -36,10 +36,10 @@ export const AhkFileListArgsSchema = z.object({
   maxResults: z
     .number()
     .min(1)
-    .max(2000)
+    .max(500)
     .optional()
-    .default(200)
-    .describe('Maximum number of entries to return.'),
+    .default(30)
+    .describe('Maximum entries (default 30 for token efficiency).'),
   maxDepth: z
     .number()
     .min(1)
@@ -57,6 +57,11 @@ export const AhkFileListArgsSchema = z.object({
     .optional()
     .default(true)
     .describe('Return absolute paths (false = relative to directory root).'),
+  outputFormat: z
+    .enum(['compact', 'detailed', 'json'])
+    .optional()
+    .default('compact')
+    .describe('Output format: compact (paths only), detailed (with stats), json (full data).'),
 });
 
 export const ahkFileListToolDefinition = {
@@ -98,9 +103,9 @@ export const ahkFileListToolDefinition = {
       maxResults: {
         type: 'number',
         minimum: 1,
-        maximum: 2000,
-        default: 200,
-        description: 'Maximum number of entries to return.',
+        maximum: 500,
+        default: 30,
+        description: 'Maximum entries (default 50 for token efficiency).',
       },
       maxDepth: {
         type: 'number',
@@ -118,6 +123,13 @@ export const ahkFileListToolDefinition = {
         type: 'boolean',
         default: true,
         description: 'Return absolute paths in results.',
+      },
+      outputFormat: {
+        type: 'string',
+        enum: ['compact', 'detailed', 'json'],
+        default: 'compact',
+        description:
+          'Output format: compact (paths only ~minimal tokens), detailed (with stats), json (full data).',
       },
     },
   },
@@ -158,10 +170,11 @@ export class AhkFileListTool {
         includeDirectories = false,
         includeHidden = false,
         extensions,
-        maxResults = 200,
+        maxResults = 30,
         maxDepth = 5,
         includeStats = true,
         absolutePaths = true,
+        outputFormat = 'compact',
       } = parsed.data;
 
       const rootDirectory = await this.resolveDirectory(directory);
@@ -182,53 +195,58 @@ export class AhkFileListTool {
       const fileCount = entries.filter(e => e.type === 'file').length;
       const dirCount = entries.filter(e => e.type === 'directory').length;
 
+      // Format output based on outputFormat parameter
+      if (outputFormat === 'compact') {
+        // Minimal token usage - just filenames (not full paths)
+        const names = entries.map(e => e.name);
+        const header = `${fileCount} files in ...${rootDirectory.split(path.sep).slice(-2).join('/')}`;
+        return {
+          content: [{ type: 'text', text: `${header}\n${names.join('\n') || 'None'}` }],
+        };
+      }
+
+      if (outputFormat === 'json') {
+        // Full JSON for programmatic use
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  directory: rootDirectory,
+                  counts: { files: fileCount, directories: dirCount },
+                  entries: entries.map(e => ({
+                    path: e.path,
+                    type: e.type,
+                    size: e.size,
+                    modified: e.modified,
+                  })),
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      // 'detailed' format - human readable with stats
       const lines = entries.map((entry, index) => {
         const statsParts: string[] = [];
         if (includeStats) {
-          if (typeof entry.size === 'number') statsParts.push(`${entry.size} bytes`);
-          if (entry.modified) statsParts.push(entry.modified);
+          if (typeof entry.size === 'number')
+            statsParts.push(`${(entry.size / 1024).toFixed(1)}KB`);
+          if (entry.modified) statsParts.push(entry.modified.split('T')[0]); // Just date, not full ISO
         }
-        const meta = statsParts.length ? ` — ${statsParts.join(' • ')}` : '';
-        return `${index + 1}. [${entry.type}] ${entry.path}${meta}`;
+        const meta = statsParts.length ? ` (${statsParts.join(', ')})` : '';
+        return `${index + 1}. ${entry.path}${meta}`;
       });
 
-      const summary = [
-        `Directory: ${rootDirectory}`,
-        nameFilter ? `Filter: ${nameFilter}` : undefined,
-        `Files: ${fileCount}`,
-        includeDirectories ? `Directories: ${dirCount}` : undefined,
-        recursive ? `Recursive (max depth ${maxDepth})` : 'Recursive disabled',
-        normalizedExtensions.length
-          ? `Extensions: ${normalizedExtensions.join(', ')}`
-          : 'Extensions: all',
-      ]
-        .filter(Boolean)
-        .join('\n');
+      const header = `**${fileCount} file(s)** in \`${rootDirectory}\`${nameFilter ? ` matching "${nameFilter}"` : ''}`;
 
       return {
         content: [
-          { type: 'text', text: `${summary}\n\n${lines.join('\n') || 'No entries found.'}` },
-          {
-            type: 'text',
-            text: JSON.stringify(
-              {
-                directory: rootDirectory,
-                nameFilter: nameFilter || null,
-                recursive,
-                includeDirectories,
-                includeHidden,
-                includeStats,
-                extensions: normalizedExtensions,
-                maxResults,
-                maxDepth,
-                absolutePaths,
-                counts: { files: fileCount, directories: dirCount },
-                entries,
-              },
-              null,
-              2
-            ),
-          },
+          { type: 'text', text: `${header}\n\n${lines.join('\n') || 'No entries found.'}` },
         ],
       };
     } catch (error) {

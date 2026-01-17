@@ -8,7 +8,7 @@ export const metadata = {
   name: 'AHK_THQBY_Document_Symbols',
   slug: 'thqby-document-symbols',
   category: 'analysis',
-  description: `Document symbols via THQBY AutoHotkey v2 LSP (vscode-autohotkey2-lsp). Returns classes, methods, functions, variables, hotkeys, and labels using the external LSP server.`,
+  description: `Document symbols via THQBY AutoHotkey v2 LSP (vscode-autohotkey2-lsp). Returns classes, methods, functions, variables, hotkeys, and labels using the external LSP server. Accepts direct code or a file path (falls back to active file).`,
   inputSchema: {
   "type": "object",
   "properties": {
@@ -27,9 +27,7 @@ export const metadata = {
       "description": "Timeout in milliseconds (default 15000)"
     }
   },
-  "required": [
-    "code"
-  ]
+  "required": []
 }
 } as const;
 

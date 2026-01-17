@@ -110,8 +110,7 @@ export class AhkLinter {
         }
         // Check for unclosed brackets
         for (const item of stack) {
-            const typeName = item.type === 'brace' ? 'brace' :
-                item.type === 'paren' ? 'parenthesis' : 'bracket';
+            const typeName = item.type === 'brace' ? 'brace' : item.type === 'paren' ? 'parenthesis' : 'bracket';
             this.addDiagnostic('UnclosedBracket', 'error', `Unclosed ${typeName}`, item.token.line, item.token.column, item.token.line, item.token.column + 1);
         }
     }
@@ -198,8 +197,7 @@ export class AhkLinter {
     checkInvalidAssignments() {
         // Check for assignments to constants or read-only values
         for (const token of this.tokens) {
-            if (token.type === TokenType.BUILTIN_VAR &&
-                this.isReadOnlyBuiltin(token.value)) {
+            if (token.type === TokenType.BUILTIN_VAR && this.isReadOnlyBuiltin(token.value)) {
                 const nextToken = this.getNextNonWhitespaceToken(token);
                 if (nextToken && nextToken.type === TokenType.ASSIGN) {
                     this.addDiagnostic('ReadOnlyAssignment', 'error', `Cannot assign to read-only built-in variable: ${token.value}`, token.line, token.column, token.line, token.column + token.value.length);
@@ -215,7 +213,8 @@ export class AhkLinter {
                     this.addDiagnostic('HungarianNotation', 'info', 'Consider avoiding Hungarian notation in favor of descriptive names', token.line, token.column, token.line, token.column + token.value.length);
                 }
                 // Check for very short variable names (except common ones)
-                if (token.value.length === 1 && !['i', 'j', 'k', 'x', 'y', 'z'].includes(token.value.toLowerCase())) {
+                if (token.value.length === 1 &&
+                    !['i', 'j', 'k', 'x', 'y', 'z'].includes(token.value.toLowerCase())) {
                     this.addDiagnostic('ShortVariableName', 'info', 'Consider using more descriptive variable names', token.line, token.column, token.line, token.column + 1);
                 }
             }
@@ -263,7 +262,9 @@ export class AhkLinter {
         // Check for potential performance issues
         let loopDepth = 0;
         for (const token of this.tokens) {
-            if (token.type === TokenType.LOOP || token.type === TokenType.WHILE || token.type === TokenType.FOR) {
+            if (token.type === TokenType.LOOP ||
+                token.type === TokenType.WHILE ||
+                token.type === TokenType.FOR) {
                 loopDepth++;
             }
             else if (token.type === TokenType.RBRACE) {
@@ -311,23 +312,52 @@ export class AhkLinter {
     }
     isOperator(token) {
         return [
-            TokenType.PLUS, TokenType.MINUS, TokenType.MULTIPLY, TokenType.DIVIDE,
-            TokenType.EQUALS, TokenType.NOT_EQUALS, TokenType.LESS_THAN, TokenType.GREATER_THAN,
-            TokenType.LESS_EQUAL, TokenType.GREATER_EQUAL, TokenType.ASSIGN
+            TokenType.PLUS,
+            TokenType.MINUS,
+            TokenType.MULTIPLY,
+            TokenType.DIVIDE,
+            TokenType.EQUALS,
+            TokenType.NOT_EQUALS,
+            TokenType.LESS_THAN,
+            TokenType.GREATER_THAN,
+            TokenType.LESS_EQUAL,
+            TokenType.GREATER_EQUAL,
+            TokenType.ASSIGN,
         ].includes(token.type);
     }
     isBuiltinFunction(name) {
         const builtins = [
-            'MsgBox', 'Send', 'Click', 'Sleep', 'WinActivate', 'WinExist',
-            'FileRead', 'FileWrite', 'StrSplit', 'StrReplace', 'SubStr',
-            'Array', 'Map', 'Object', 'Gui', 'ToolTip', 'SetTimer'
+            'MsgBox',
+            'Send',
+            'Click',
+            'Sleep',
+            'WinActivate',
+            'WinExist',
+            'FileRead',
+            'FileWrite',
+            'StrSplit',
+            'StrReplace',
+            'SubStr',
+            'Array',
+            'Map',
+            'Object',
+            'Gui',
+            'ToolTip',
+            'SetTimer',
         ];
         return builtins.includes(name);
     }
     isReadOnlyBuiltin(name) {
         const readOnly = [
-            'A_ScriptName', 'A_ScriptDir', 'A_WorkingDir', 'A_ComputerName',
-            'A_UserName', 'A_Now', 'A_TickCount', 'A_ScreenWidth', 'A_ScreenHeight'
+            'A_ScriptName',
+            'A_ScriptDir',
+            'A_WorkingDir',
+            'A_ComputerName',
+            'A_UserName',
+            'A_Now',
+            'A_TickCount',
+            'A_ScreenWidth',
+            'A_ScreenHeight',
         ];
         return readOnly.includes(name);
     }
@@ -353,8 +383,8 @@ export class AhkLinter {
             message,
             range: {
                 start: [startLine, startColumn],
-                end: [endLine, endColumn]
-            }
+                end: [endLine, endColumn],
+            },
         });
     }
 }

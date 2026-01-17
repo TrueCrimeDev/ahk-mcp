@@ -593,9 +593,15 @@ export class AhkRunTool {
           }
         }
 
+        // Determine if the script failed
+        const hasError = wait && response.exitCode !== 0;
+        const hasStderr = response.stderr && response.stderr.trim().length > 0;
+
         // Provide consistent feedback structure
         const statusText = wait
-          ? `AHK script completed: ${file} (exit code: ${response.exitCode})`
+          ? hasError
+            ? `AHK script failed: ${file} (exit code: ${response.exitCode})`
+            : `AHK script completed: ${file} (exit code: ${response.exitCode})`
           : `AHK script started: ${file} (PID: ${response.pid})`;
 
         const windowText = response.windowDetected
@@ -604,12 +610,18 @@ export class AhkRunTool {
             ? 'No window detected within timeout'
             : '';
 
+        // Include stderr prominently if present
+        const stderrText = hasStderr ? `**Error Output:**\n\`\`\`\n${response.stderr}\n\`\`\`` : '';
+
         return {
           content: [
             { type: 'text', text: statusText },
+            ...(stderrText ? [{ type: 'text', text: stderrText }] : []),
             ...(windowText ? [{ type: 'text', text: windowText }] : []),
             { type: 'text', text: `Execution details:\n${JSON.stringify(response, null, 2)}` },
           ],
+          // Set isError flag for non-zero exit codes or stderr output
+          ...(hasError || hasStderr ? { isError: true } : {}),
         };
       }
 
