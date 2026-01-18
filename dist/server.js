@@ -48,7 +48,7 @@ import { AhkToolsSearchTool } from './tools/ahk-tools-search.js';
 import { AhkWorkflowAnalyzeFixRunTool, } from './tools/ahk-workflow-analyze-fix-run.js';
 import { AhkThqbyDocumentSymbolsTool, } from './tools/ahk-thqby-document-symbols.js';
 import { AhkCloudValidateTool, } from './tools/ahk-cloud-validate.js';
-import { AhkDebugDBGpTool, } from './tools/ahk-debug-dbgp.js';
+import { AhkDebugDBGpTool } from './tools/ahk-debug-dbgp.js';
 import { autoDetect, getActiveFilePath } from './core/active-file.js';
 import { toolSettings } from './core/tool-settings.js';
 import { configManager } from './core/path-converter-config.js';

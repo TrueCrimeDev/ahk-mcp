@@ -6,10 +6,28 @@ import { resolveSearchDirs } from '../core/config.js';
 import { safeParse } from '../core/validation-middleware.js';
 
 export const AhkRecentArgsSchema = z.object({
-  scriptDir: z.string().optional(),
-  extraDirs: z.array(z.string()).optional().default([]),
-  limit: z.number().min(1).max(50).optional().default(10),
-  patterns: z.array(z.string()).optional().default(['*.ahk']),
+  scriptDir: z.string().optional().describe('Override for A_ScriptDir/root scanning directory'),
+  extraDirs: z.array(z.string()).optional().default([]).describe('Additional directories to scan'),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .default(0)
+    .describe('Number of items to skip for pagination (default: 0)'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .default(10)
+    .describe('Maximum items to return per page (default: 10, max: 50)'),
+  patterns: z
+    .array(z.string())
+    .optional()
+    .default(['*.ahk'])
+    .describe('File glob patterns to include (default: ["*.ahk"])'),
 });
 
 export const ahkRecentToolDefinition = {
@@ -28,7 +46,19 @@ List the most recent AutoHotkey scripts from configured directories. Supports ov
         items: { type: 'string' },
         description: 'Additional directories to scan',
       },
-      limit: { type: 'number', minimum: 1, maximum: 50, default: 10 },
+      offset: {
+        type: 'integer',
+        minimum: 0,
+        default: 0,
+        description: 'Number of items to skip for pagination',
+      },
+      limit: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 50,
+        default: 10,
+        description: 'Maximum items to return per page',
+      },
       patterns: {
         type: 'array',
         items: { type: 'string' },
@@ -83,7 +113,13 @@ export class AhkRecentTool {
       const parsed = safeParse(args, AhkRecentArgsSchema, 'AHK_File_Recent');
       if (!parsed.success) return parsed.error;
 
-      const { scriptDir, extraDirs = [], limit = 10, patterns = ['*.ahk'] } = parsed.data;
+      const {
+        scriptDir,
+        extraDirs = [],
+        offset = 0,
+        limit = 10,
+        patterns = ['*.ahk'],
+      } = parsed.data;
 
       // Resolve directories: arg -> config -> env -> cwd
       const searchDirs = resolveSearchDirs(scriptDir, extraDirs);
@@ -97,41 +133,54 @@ export class AhkRecentTool {
       // Sort by last write time desc and de-duplicate by path
       found.sort((a, b) => b.lastWriteTime - a.lastWriteTime);
       const seen = new Set<string>();
-      const unique: FoundScript[] = [];
+      const allUnique: FoundScript[] = [];
       for (const f of found) {
         if (seen.has(f.fullPath)) continue;
         seen.add(f.fullPath);
-        unique.push(f);
-        if (unique.length >= limit) break;
+        allUnique.push(f);
       }
+
+      // Apply pagination
+      const totalCount = allUnique.length;
+      const unique = allUnique.slice(offset, offset + limit);
+      const hasMore = totalCount > offset + limit;
+
+      // Pagination metadata
+      const paginationMeta = {
+        offset,
+        limit,
+        returned: unique.length,
+        total: totalCount,
+        has_more: hasMore,
+      };
 
       const items = unique.map(f => ({
         path: f.fullPath,
         lastWriteTime: new Date(f.lastWriteTime).toISOString(),
       }));
 
+      const pageInfo = hasMore
+        ? `\nShowing ${offset + 1}-${offset + unique.length} of ${totalCount}`
+        : '';
+
       return {
         content: [
           {
             type: 'text',
             text: items.length
-              ? items.map((i, idx) => `${idx + 1}) ${i.path} — ${i.lastWriteTime}`).join('\n')
+              ? items
+                  .map((i, idx) => `${offset + idx + 1}) ${i.path} — ${i.lastWriteTime}`)
+                  .join('\n') + pageInfo
               : 'No scripts found.',
           },
-          {
-            type: 'text',
-            text: JSON.stringify(
-              {
-                directoriesSearched: searchDirs,
-                patterns,
-                limit,
-                items,
-              },
-              null,
-              2
-            ),
-          },
         ],
+        _meta: {
+          pagination: paginationMeta,
+          context: {
+            directoriesSearched: searchDirs,
+            patterns,
+          },
+        },
       };
     } catch (error) {
       logger.error('Error in AHK_File_Recent tool:', error);

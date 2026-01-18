@@ -14,18 +14,30 @@ import { safeParse } from '../core/validation-middleware.js';
  * Input schema for AHK_Library_Search tool
  */
 export const AHK_Library_Search_ArgsSchema = z.object({
-  query: z.string().min(1).describe('Search query for symbol name (supports fuzzy matching)'),
+  query: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe('Search query for symbol name (1-200 characters, supports fuzzy matching)'),
   types: z
     .array(z.enum(['class', 'method', 'function', 'property', 'variable']))
     .optional()
     .describe('Filter by symbol types (default: all)'),
-  maxResults: z
+  offset: z
     .number()
+    .int()
+    .min(0)
+    .optional()
+    .default(0)
+    .describe('Number of results to skip for pagination (default: 0)'),
+  limit: z
+    .number()
+    .int()
     .min(1)
     .max(100)
     .optional()
     .default(20)
-    .describe('Maximum results to return (default: 20)'),
+    .describe('Maximum results to return per page (default: 20, max: 100)'),
   minScore: z
     .number()
     .min(0)
@@ -64,7 +76,9 @@ export const AHK_Library_Search_Definition = {
     properties: {
       query: {
         type: 'string',
-        description: 'Search query for symbol name (supports fuzzy matching)',
+        minLength: 1,
+        maxLength: 200,
+        description: 'Search query for symbol name (1-200 characters, supports fuzzy matching)',
       },
       types: {
         type: 'array',
@@ -74,15 +88,25 @@ export const AHK_Library_Search_Definition = {
         },
         description: 'Filter by symbol types (default: all)',
       },
-      maxResults: {
-        type: 'number',
-        description: 'Maximum results to return (default: 20)',
+      offset: {
+        type: 'integer',
+        minimum: 0,
+        default: 0,
+        description: 'Number of results to skip for pagination',
+      },
+      limit: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 100,
         default: 20,
+        description: 'Maximum results to return per page',
       },
       minScore: {
         type: 'number',
-        description: 'Minimum match score 0-1 (default: 0.3)',
+        minimum: 0,
+        maximum: 1,
         default: 0.3,
+        description: 'Minimum match score 0-1 (default: 0.3)',
       },
       showPaths: {
         type: 'boolean',
@@ -144,7 +168,7 @@ export async function AHK_Library_Search_Handler(args: unknown): Promise<CallToo
       return parsed.error as CallToolResult;
     }
 
-    const { query, types, maxResults, minScore, showPaths } = parsed.data;
+    const { query, types, offset = 0, limit = 20, minScore, showPaths } = parsed.data;
     const catalog = getCatalog();
 
     // Initialize from standard paths if not already done
@@ -152,18 +176,36 @@ export async function AHK_Library_Search_Handler(args: unknown): Promise<CallToo
       await catalog.initializeFromStandardPaths();
     }
 
-    // Search for symbols
-    const results = catalog.searchSymbols(query, {
+    // Search for symbols - get more than needed to support pagination
+    const maxToFetch = offset + limit + 50; // +50 to check if there's more
+    const allResults = catalog.searchSymbols(query, {
       types: types as ('class' | 'method' | 'function' | 'property' | 'variable')[] | undefined,
-      maxResults: maxResults ?? 20,
+      maxResults: maxToFetch,
       minScore: minScore ?? 0.3,
     });
+
+    // Apply pagination
+    const totalCount = allResults.length;
+    const results = allResults.slice(offset, offset + limit);
+    const hasMore = totalCount > offset + limit;
+
+    // Pagination metadata
+    const paginationMeta = {
+      offset,
+      limit,
+      returned: results.length,
+      total: totalCount > offset + limit ? totalCount : offset + results.length,
+      has_more: hasMore,
+    };
 
     if (results.length === 0) {
       // Try fuzzy search on library names as fallback
       const similarLibs = catalog.findSimilar(query, 5);
 
       let message = `No symbols found matching "${query}"`;
+      if (offset > 0) {
+        message += ` at offset ${offset}`;
+      }
       if (similarLibs.length > 0) {
         message += `\n\nDid you mean one of these libraries?\n${similarLibs.map(n => `  • ${n}`).join('\n')}`;
       }
@@ -175,11 +217,16 @@ export async function AHK_Library_Search_Handler(args: unknown): Promise<CallToo
 
       return {
         content: [{ type: 'text', text: message }],
+        _meta: { pagination: paginationMeta },
       };
     }
 
     // Format results
-    const lines: string[] = [`Found ${results.length} symbol(s) matching "${query}":`, ''];
+    const header = `Found ${results.length} symbol(s) matching "${query}"`;
+    const pageInfo = hasMore
+      ? ` (showing ${offset + 1}-${offset + results.length} of ${totalCount}+)`
+      : '';
+    const lines: string[] = [`${header}${pageInfo}:`, ''];
 
     // Group by library for cleaner output
     const byLibrary = new Map<string, SymbolSearchResult[]>();
@@ -206,8 +253,13 @@ export async function AHK_Library_Search_Handler(args: unknown): Promise<CallToo
       }
     }
 
+    if (hasMore) {
+      lines.push(`*More results available. Use offset=${offset + limit} to see next page.*`);
+    }
+
     return {
       content: [{ type: 'text', text: lines.join('\n') }],
+      _meta: { pagination: paginationMeta },
     };
   } catch (error) {
     return {
