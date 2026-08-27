@@ -2,8 +2,7 @@
 
 **Date:** 2026-08-27
 
-**Status:** Proposed written specification; the in-chat design was approved on
-2026-08-27
+**Status:** Approved on 2026-08-27
 
 ## Goal
 
@@ -131,6 +130,11 @@ canonicalization, or hashing fails, the Studio UI remains available for catalog
 inspection but reports execution as unavailable. No request can override or
 re-resolve the executable.
 
+Setting `AHK_MCP_STUDIO_EXECUTION=off` selects catalog-only mode. In that mode
+the server does not resolve, hash, probe, or launch AutoHotkey; list and preview
+remain available, while staging or approving a run returns `503` with the fixed
+code `execution_unavailable`.
+
 ## WebMCP Tool Contract
 
 The client checks that `document.modelContext?.registerTool` is a function
@@ -192,6 +196,7 @@ Expected response classes are:
 - `409` for an invalid or already-consumed state transition.
 - `410` for an expired preview or run request.
 - `500` for a sanitized native confirmation or execution failure.
+- `503` when native execution is disabled or the trusted runtime is unavailable.
 
 ## State and Data Flow
 
@@ -302,8 +307,8 @@ Development follows red-green-refactor:
    with a recording `document.modelContext`, verifies the four registrations and
    schemas, and proves that the request tool only stages a run.
 4. `Tests/integration/studio-server.test.ts` starts the built loopback server
-   and checks the page, client asset, and catalog endpoint without launching
-   AHK.
+   with `AHK_MCP_STUDIO_EXECUTION=off`, then checks the page, client asset, and
+   catalog endpoint without launching AHK.
 5. Manual verification in the WebMCP-capable in-app browser confirms discovery,
    normal UI fallback, visible state changes, native denial, native approval,
    and the desktop message result.
