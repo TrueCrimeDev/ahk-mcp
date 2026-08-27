@@ -4,6 +4,7 @@ import { STUDIO_APP_JS, STUDIO_CSS, STUDIO_HTML, STUDIO_WEBMCP_JS } from './stud
 
 const STUDIO_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+const LOOPBACK_HOST_AUTHORITY = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/;
 
 type HttpStudioService = Pick<
   StudioService,
@@ -26,6 +27,7 @@ function hasExactLoopbackOrigin(req: Request): boolean {
   const host = req.headers.host;
   const origin = req.headers.origin;
   if (typeof host !== 'string' || typeof origin !== 'string') return false;
+  if (!LOOPBACK_HOST_AUTHORITY.test(host)) return false;
 
   try {
     const requestUrl = new URL('http://' + host);
@@ -65,8 +67,16 @@ function handleStudioError(error: unknown, res: Response): void {
   sendStudioError(res, 500, 'internal_error', 'Studio request failed.');
 }
 
+function isUpstreamJsonParseError(error: unknown, res: Response): boolean {
+  if (res.locals.studioBoundaryEntered === true) return false;
+  if (!(error instanceof SyntaxError) || typeof error !== 'object' || error === null) return false;
+  const candidate = error as { status?: unknown; type?: unknown };
+  return candidate.status === 400 && candidate.type === 'entity.parse.failed';
+}
+
 export function mountStudio(app: Express, service: HttpStudioService): void {
   app.use('/studio', (_req, res, next) => {
+    res.locals.studioBoundaryEntered = true;
     setStudioHeaders(res);
     next();
   });
@@ -134,6 +144,10 @@ export function mountStudio(app: Express, service: HttpStudioService): void {
   app.use('/studio', (error: unknown, req: Request, res: Response, _next: NextFunction) => {
     if (req.method === 'POST' && !hasExactLoopbackOrigin(req)) {
       sendStudioError(res, 403, 'loopback_required', 'Studio changes require the local page.');
+      return;
+    }
+    if (isUpstreamJsonParseError(error, res)) {
+      sendStudioError(res, 400, 'invalid_input', 'Studio input is invalid.');
       return;
     }
     handleStudioError(error, res);

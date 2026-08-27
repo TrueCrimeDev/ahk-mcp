@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import express from 'express';
 import { once } from 'node:events';
+import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
   StudioServiceError,
@@ -82,7 +83,56 @@ function mutationHeaders(port: number, overrides: Record<string, string> = {}) {
   };
 }
 
-function expectStudioHeaders(response: Response): void {
+interface StudioHttpTestResponse {
+  status: number;
+  headers: Headers;
+  json(): Record<string, unknown>;
+}
+
+async function postStudioWithAuthority(
+  fixture: { port: number },
+  path: string,
+  body: string,
+  authority: { host?: string; origin?: string }
+): Promise<StudioHttpTestResponse> {
+  return new Promise((resolve, reject) => {
+    const headers: Record<string, string | number> = {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(body),
+      host: authority.host ?? `127.0.0.1:${fixture.port}`,
+    };
+    if (authority.origin) headers.origin = authority.origin;
+    const request = http.request(
+      {
+        hostname: '127.0.0.1',
+        port: fixture.port,
+        path,
+        method: 'POST',
+        headers,
+      },
+      response => {
+        const chunks: Buffer[] = [];
+        response.on('data', chunk => chunks.push(Buffer.from(chunk)));
+        response.on('end', () => {
+          const responseHeaders = new Headers();
+          for (const [name, value] of Object.entries(response.headers)) {
+            if (value !== undefined) responseHeaders.set(name, String(value));
+          }
+          const responseBody = Buffer.concat(chunks).toString('utf8');
+          resolve({
+            status: response.statusCode ?? 0,
+            headers: responseHeaders,
+            json: () => JSON.parse(responseBody) as Record<string, unknown>,
+          });
+        });
+      }
+    );
+    request.on('error', reject);
+    request.end(body);
+  });
+}
+
+function expectStudioHeaders(response: { headers: { get(name: string): string | null } }): void {
   expect(response.headers.get('cache-control')).toBe('no-store');
   expect(response.headers.get('x-content-type-options')).toBe('nosniff');
   expect(response.headers.get('referrer-policy')).toBe('no-referrer');
@@ -186,6 +236,18 @@ describe('Studio HTTP surface', () => {
       { origin: `http://127.0.0.1:${fixture.port}/path` },
       { host: `example.com:${fixture.port}`, origin: `http://example.com:${fixture.port}` },
       { host: 'not a host', origin: 'http://not a host' },
+      {
+        host: `127.1:${fixture.port}`,
+        origin: `http://127.0.0.1:${fixture.port}`,
+      },
+      {
+        host: `2130706433:${fixture.port}`,
+        origin: `http://127.0.0.1:${fixture.port}`,
+      },
+      {
+        host: `[0:0:0:0:0:0:0:1]:${fixture.port}`,
+        origin: `http://[::1]:${fixture.port}`,
+      },
     ];
     const posts = [
       ['/studio/api/previews', { macroId: macro.id, parameters: { message: 'Hi' } }],
@@ -197,14 +259,12 @@ describe('Studio HTTP surface', () => {
     try {
       for (const post of posts) {
         for (const testCase of cases) {
-          const headers: Record<string, string> = { 'content-type': 'application/json' };
-          if (testCase.origin) headers.origin = testCase.origin;
-          if (testCase.host) headers.host = testCase.host;
-          const response = await fetch(fixture.url + post[0], {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(post[1]),
-          });
+          const response = await postStudioWithAuthority(
+            fixture,
+            post[0],
+            JSON.stringify(post[1]),
+            testCase
+          );
           expect(response.status).toBe(403);
           expectStudioHeaders(response);
           expect(await response.json()).toEqual({
@@ -214,6 +274,71 @@ describe('Studio HTTP surface', () => {
         }
       }
       expect(calls).toBe(0);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it('accepts exact localhost, IPv4, and IPv6 loopback authorities', async () => {
+    const fixture = await startStudioHttpFixture();
+    try {
+      for (const hostname of ['localhost', '127.0.0.1', '[::1]']) {
+        const host = `${hostname}:${fixture.port}`;
+        const response = await postStudioWithAuthority(
+          fixture,
+          '/studio/api/previews',
+          JSON.stringify({ macroId: macro.id, parameters: { message: 'Hi' } }),
+          { host, origin: `http://${host}` }
+        );
+        expect(response.status).toBe(201);
+        expectStudioHeaders(response);
+        expect(await response.json()).toMatchObject({ previewId });
+      }
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it('sanitizes malformed JSON rejected before Studio middleware using the Host and Origin boundary', async () => {
+    const fixture = await startStudioHttpFixture();
+    try {
+      const validHost = `localhost:${fixture.port}`;
+      const malformed = await postStudioWithAuthority(fixture, '/studio/api/previews', '{', {
+        host: validHost,
+        origin: `http://${validHost}`,
+      });
+      expect(malformed.status).toBe(400);
+      expectStudioHeaders(malformed);
+      expect(await malformed.json()).toEqual({
+        code: 'invalid_input',
+        message: 'Studio input is invalid.',
+      });
+
+      const invalidAuthorities = [
+        {
+          host: `127.1:${fixture.port}`,
+          origin: `http://127.0.0.1:${fixture.port}`,
+        },
+        {
+          host: `127.0.0.1:${fixture.port}`,
+          origin: `https://127.0.0.1:${fixture.port}`,
+        },
+        { host: `127.0.0.1:${fixture.port}`, origin: undefined },
+      ];
+      for (const authority of invalidAuthorities) {
+        const response = await postStudioWithAuthority(
+          fixture,
+          '/studio/api/previews',
+          '{',
+          authority
+        );
+        expect(response.status).toBe(403);
+        expectStudioHeaders(response);
+        expect(await response.json()).toEqual({
+          code: 'loopback_required',
+          message: 'Studio changes require the local page.',
+        });
+      }
     } finally {
       await fixture.close();
     }

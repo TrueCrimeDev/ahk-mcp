@@ -16,6 +16,16 @@ interface ToolRegistration {
 
 const previewId = '11111111-1111-4111-8111-111111111111';
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 function serviceStub(): Pick<
   StudioService,
   'listMacros' | 'createPreview' | 'requestRun' | 'getRun' | 'approveRun'
@@ -64,14 +74,23 @@ describe('Studio WebMCP classic-script contract', () => {
     const source = await getWebMcpAsset();
     const registrations: ToolRegistration[] = [];
     const registrationOrder: string[] = [];
+    const registrationGates = [
+      deferred<void>(),
+      deferred<void>(),
+      deferred<void>(),
+      deferred<void>(),
+    ];
     const fetches: Array<{ input: string; init?: { method?: string; body?: string } }> = [];
     const events: FakeCustomEvent[] = [];
     const document = {
       modelContext: {
-        async registerTool(tool: ToolRegistration) {
+        registerTool(tool: ToolRegistration) {
+          const gate = registrationGates[registrations.length];
+          if (!gate) throw new Error('Unexpected extra WebMCP registration.');
           registrations.push(tool);
-          await Promise.resolve();
-          registrationOrder.push(tool.name);
+          return gate.promise.then(() => {
+            registrationOrder.push(tool.name);
+          });
         },
       },
       dispatchEvent(event: FakeCustomEvent) {
@@ -94,6 +113,20 @@ describe('Studio WebMCP classic-script contract', () => {
 
     new vm.Script(source, { filename: 'webmcp.js' }).runInContext(context);
     const ready = vm.runInContext('globalThis.__ahkStudioWebMcpReady', context) as Promise<void>;
+
+    const expectedNames = [
+      'list_ahk_macros',
+      'preview_ahk_macro',
+      'request_ahk_macro_run',
+      'get_ahk_run_status',
+    ];
+    expect(registrations.map(tool => tool.name)).toEqual(expectedNames.slice(0, 1));
+    for (let index = 0; index < registrationGates.length - 1; index += 1) {
+      registrationGates[index]?.resolve();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(registrations.map(tool => tool.name)).toEqual(expectedNames.slice(0, index + 2));
+    }
+    registrationGates[3]?.resolve();
     await ready;
 
     expect(registrations.map(tool => [tool.name, tool.annotations])).toEqual([
