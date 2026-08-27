@@ -336,6 +336,34 @@ describe('Studio preview and run state machine', () => {
     expect(approval.confirm).toHaveBeenCalledTimes(2);
   });
 
+  it('shares the global execution lock across separate service instances', async () => {
+    const gate = deferred<NativeApprovalResult>();
+    const approval = {
+      confirm: jest
+        .fn<NativeApprovalGateway['confirm']>()
+        .mockImplementationOnce(() => gate.promise)
+        .mockResolvedValue({ decision: 'approved', durationMs: 1 }),
+    };
+    const first = await stageRun({ approval });
+    const second = await stageRun({ approval });
+
+    const firstApproval = first.service.approveRun(first.run.runId);
+    let secondError: unknown;
+    try {
+      await second.service.approveRun(second.run.runId);
+    } catch (error) {
+      secondError = error;
+    }
+    gate.resolve({ decision: 'denied', durationMs: 2 });
+    await firstApproval;
+
+    expect(secondError).toMatchObject({ code: 'execution_busy', statusCode: 409 });
+    await expect(second.service.approveRun(second.run.runId)).resolves.toMatchObject({
+      state: 'succeeded',
+    });
+    expect(approval.confirm).toHaveBeenCalledTimes(2);
+  });
+
   it('asserts runtime integrity before confirmation and releases the lock on failure', async () => {
     const fixture = await createFixture({ ids: ['preview-1', 'run-1', 'preview-2', 'run-2'] });
     fixture.assertIntegrity.mockRejectedValueOnce(new Error('C:\\private\\runtime changed'));
@@ -371,6 +399,24 @@ describe('Studio preview and run state machine', () => {
       statusCode: 500,
     });
     expect(fixture.assertIntegrity).toHaveBeenCalledTimes(2);
+    expect(fixture.executor.execute).not.toHaveBeenCalled();
+  });
+
+  it('does not execute when the run expires during post-approval integrity checks', async () => {
+    const integrityGate = deferred<void>();
+    const integrityStarted = deferred<void>();
+    const fixture = await stageRun();
+    fixture.assertIntegrity.mockResolvedValueOnce(undefined).mockImplementationOnce(async () => {
+      integrityStarted.resolve();
+      await integrityGate.promise;
+    });
+
+    const approval = fixture.service.approveRun(fixture.run.runId);
+    await integrityStarted.promise;
+    fixture.advance(300_000);
+    integrityGate.resolve();
+
+    await expect(approval).rejects.toMatchObject({ code: 'run_expired', statusCode: 410 });
     expect(fixture.executor.execute).not.toHaveBeenCalled();
   });
 
@@ -487,5 +533,46 @@ describe('Studio preview and run state machine', () => {
     expect(publicJson).not.toMatch(
       /ShowDesktopMessage\.ahk|AutoHotkey64\.exe|executablePath|scriptPath|arguments|timeoutMs|successSummary|failureSummary|stdout|stderr|stack/i
     );
+  });
+
+  it('maps adversarial unavailable-runtime messages to fixed public text', async () => {
+    const fixture = await createFixture({
+      runtime: {
+        available: false,
+        reason: 'probe_failed',
+        message: 'C:\\private\\AutoHotkey64.exe stderr and stack',
+      },
+    });
+
+    expect(fixture.service.getRuntimeStatus()).toEqual({
+      available: false,
+      reason: 'probe_failed',
+      message: 'AutoHotkey runtime could not be verified.',
+    });
+    expect(JSON.stringify(fixture.service.listMacros())).not.toMatch(/private|stderr|stack/i);
+  });
+
+  it('exposes and serializes only fixed service-error fields without a stack', async () => {
+    const fixture = await createFixture();
+    let caught: unknown;
+    try {
+      await fixture.service.createPreview({
+        macroId: 'show_desktop_message',
+        parameters: { message: '', privatePath: 'C:\\private\\macro.ahk' },
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect(Object.getOwnPropertyNames(caught as object).sort()).toEqual(
+      ['code', 'message', 'statusCode'].sort()
+    );
+    expect(JSON.parse(JSON.stringify(caught))).toEqual({
+      code: 'invalid_input',
+      statusCode: 400,
+      message: 'Studio input is invalid.',
+    });
+    expect((caught as Error).stack).toBeUndefined();
   });
 });

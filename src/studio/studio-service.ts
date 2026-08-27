@@ -2,7 +2,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { StudioMacroExecutor, StudioExecutionResult } from './ahk-executor.js';
-import type { PinnedAhkRuntime, RuntimeAvailability } from './ahk-runtime.js';
+import type {
+  PinnedAhkRuntime,
+  RuntimeAvailability,
+  RuntimeUnavailableReason,
+} from './ahk-runtime.js';
 import type { NativeApprovalGateway } from './native-approval.js';
 import type {
   PublicMacro,
@@ -39,13 +43,27 @@ const ERROR_MESSAGES: Record<StudioServiceErrorCode, string> = {
   integrity_failed: 'Studio execution integrity check failed.',
 };
 
+const RUNTIME_MESSAGES: Record<RuntimeUnavailableReason, string> = {
+  disabled: 'Native execution is disabled.',
+  not_found: 'AutoHotkey runtime was not found.',
+  invalid_executable: 'AutoHotkey runtime is invalid.',
+  probe_failed: 'AutoHotkey runtime could not be verified.',
+  unsupported_version: 'AutoHotkey v2 or later is required.',
+};
+
 export class StudioServiceError extends Error {
   readonly code: StudioServiceErrorCode;
   readonly statusCode: 400 | 404 | 409 | 410 | 500 | 503;
 
   constructor(code: StudioServiceErrorCode, statusCode: 400 | 404 | 409 | 410 | 500 | 503) {
     super(ERROR_MESSAGES[code]);
-    this.name = 'StudioServiceError';
+    delete this.stack;
+    Object.defineProperty(this, 'message', {
+      value: ERROR_MESSAGES[code],
+      enumerable: true,
+      configurable: false,
+      writable: false,
+    });
     this.code = code;
     this.statusCode = statusCode;
   }
@@ -100,9 +118,31 @@ export interface StudioServiceDependencies {
   runtime: RuntimeAvailability;
   approval: NativeApprovalGateway;
   executor: StudioMacroExecutor;
+  executionCoordinator?: StudioExecutionCoordinator;
   now?: () => Date;
   generateId?: () => string;
 }
+
+export interface StudioExecutionCoordinator {
+  tryAcquire(): boolean;
+  release(): void;
+}
+
+function createExecutionCoordinator(): StudioExecutionCoordinator {
+  let locked = false;
+  return {
+    tryAcquire() {
+      if (locked) return false;
+      locked = true;
+      return true;
+    },
+    release() {
+      locked = false;
+    },
+  };
+}
+
+const globalExecutionCoordinator = createExecutionCoordinator();
 
 interface TrustedMacroSnapshot {
   macro: PublicMacro;
@@ -173,12 +213,12 @@ export class StudioService {
   private readonly runtime: RuntimeAvailability;
   private readonly approval: NativeApprovalGateway;
   private readonly executor: StudioMacroExecutor;
+  private readonly executionCoordinator: StudioExecutionCoordinator;
   private readonly now: () => Date;
   private readonly generateId: () => string;
   private readonly previews = new Map<string, PreviewRecord>();
   private readonly consumedPreviewIds = new Set<string>();
   private readonly runs = new Map<string, RunRecord>();
-  private executionLocked = false;
 
   constructor(dependencies: StudioServiceDependencies) {
     this.macroRoot = dependencies.macroRoot;
@@ -186,6 +226,7 @@ export class StudioService {
     this.runtime = dependencies.runtime;
     this.approval = dependencies.approval;
     this.executor = dependencies.executor;
+    this.executionCoordinator = dependencies.executionCoordinator ?? globalExecutionCoordinator;
     this.now = dependencies.now ?? (() => new Date());
     this.generateId = dependencies.generateId ?? randomUUID;
   }
@@ -195,7 +236,7 @@ export class StudioService {
       return {
         available: false,
         reason: this.runtime.reason,
-        message: this.runtime.message,
+        message: RUNTIME_MESSAGES[this.runtime.reason],
       };
     }
     return {
@@ -290,9 +331,8 @@ export class StudioService {
     const runtime = this.requireRuntime();
     const run = this.requireLiveRun(runId);
     if (run.state !== 'pending_approval') throw serviceError('state_conflict', 409);
-    if (this.executionLocked) throw serviceError('execution_busy', 409);
+    if (!this.executionCoordinator.tryAcquire()) throw serviceError('execution_busy', 409);
 
-    this.executionLocked = true;
     run.state = 'awaiting_native_confirmation';
 
     try {
@@ -338,6 +378,12 @@ export class StudioService {
         this.markIntegrityFailure(run);
       }
 
+      if (this.isExpired(run.expiresAtMs)) {
+        run.state = 'failed';
+        run.result = this.fixedFailure('Run expired before execution.', approvalResult.durationMs);
+        throw serviceError('run_expired', 410);
+      }
+
       run.state = 'running';
       let executionResult: StudioExecutionResult;
       try {
@@ -359,7 +405,7 @@ export class StudioService {
       run.state = run.result.status;
       return this.toPublicRun(run);
     } finally {
-      this.executionLocked = false;
+      this.executionCoordinator.release();
     }
   }
 
