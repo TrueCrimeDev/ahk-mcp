@@ -1,5 +1,6 @@
 import type { StudioProcessRunner } from './ahk-process.js';
 import type { PinnedAhkRuntime } from './ahk-runtime.js';
+import type { VerifiedStudioScript } from './verified-script.js';
 
 export interface NativeApprovalRequest {
   runtime: PinnedAhkRuntime;
@@ -10,7 +11,12 @@ export interface NativeApprovalRequest {
 export type NativeApprovalResult =
   | { decision: 'approved'; durationMs: number }
   | { decision: 'denied'; durationMs: number }
-  | { decision: 'failed'; durationMs: number; reason: string };
+  | {
+      decision: 'failed';
+      durationMs: number;
+      reason: string;
+      requiresQuarantine?: true;
+    };
 
 export interface NativeApprovalGateway {
   confirm(request: NativeApprovalRequest): Promise<NativeApprovalResult>;
@@ -20,12 +26,13 @@ const APPROVAL_FAILURE_REASON = 'Native approval could not be completed.';
 
 export function createNativeApprovalGateway(
   processRunner: StudioProcessRunner,
-  approvalScriptPath: string
+  approvalScript: VerifiedStudioScript
 ): NativeApprovalGateway {
   return {
     async confirm(request) {
       try {
         await request.runtime.assertIntegrity();
+        await approvalScript.assertIntegrity();
       } catch {
         return { decision: 'failed', durationMs: 0, reason: APPROVAL_FAILURE_REASON };
       }
@@ -34,7 +41,7 @@ export function createNativeApprovalGateway(
       try {
         outcome = await processRunner.run({
           executablePath: request.runtime.executablePath,
-          scriptPath: approvalScriptPath,
+          scriptSource: approvalScript.source,
           arguments: [request.title, request.effect],
           timeoutMs: 60_000,
           outputLimitChars: 4_096,
@@ -54,6 +61,9 @@ export function createNativeApprovalGateway(
         decision: 'failed',
         durationMs: outcome.durationMs,
         reason: APPROVAL_FAILURE_REASON,
+        ...(outcome.kind === 'termination_unconfirmed'
+          ? { requiresQuarantine: true as const }
+          : {}),
       };
     },
   };

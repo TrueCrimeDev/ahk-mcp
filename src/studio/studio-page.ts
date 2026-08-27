@@ -15,6 +15,12 @@ export const STUDIO_HTML = `<!doctype html>
       <h1>AHK Macro Studio</h1>
       <p>Preview and stage a trusted macro before approving native execution.</p>
     </header>
+    <section class="connection-status" aria-labelledby="status-heading">
+      <h2 id="status-heading">Connection status</h2>
+      <p id="local-status">Local companion: checking…</p>
+      <p id="runtime-status">Native runtime: checking…</p>
+      <p id="webmcp-status">WebMCP: checking…</p>
+    </section>
     <section aria-labelledby="macro-heading">
       <h2 id="macro-heading">1. Choose a macro</h2>
       <div id="macro-list" class="macro-list" aria-live="polite"></div>
@@ -32,7 +38,7 @@ export const STUDIO_HTML = `<!doctype html>
       <div class="actions">
         <button id="stage-button" type="button" disabled>Stage run</button>
         <button id="status-button" type="button" disabled>Refresh status</button>
-        <button id="approve-button" class="approve" type="button" disabled>Approve on this computer</button>
+        <button id="approve-button" class="approve" type="button" disabled>Run on this PC</button>
       </div>
       <pre id="run-panel" aria-live="polite">No run staged.</pre>
     </section>
@@ -56,6 +62,7 @@ h1, h2, p { margin-top: 0; }
 h1 { margin-bottom: .5rem; font-size: clamp(2rem, 7vw, 3.4rem); }
 h2 { font-size: 1.1rem; }
 .eyebrow { color: #82d7ff; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.connection-status p { margin-bottom: .35rem; }
 label { display: block; margin-bottom: .4rem; font-weight: 650; }
 input { width: 100%; border: 1px solid #596b85; border-radius: 9px; padding: .8rem; margin-bottom: .8rem; font: inherit; background: #111722; color: inherit; }
 button { border: 0; border-radius: 9px; padding: .72rem 1rem; font: inherit; font-weight: 700; color: #06111a; background: #82d7ff; cursor: pointer; }
@@ -84,6 +91,14 @@ export const STUDIO_APP_JS = `(function () {
   var previewPanel = document.getElementById('preview-panel');
   var runPanel = document.getElementById('run-panel');
   var errorPanel = document.getElementById('studio-error');
+  var localStatus = document.getElementById('local-status');
+  var runtimeStatus = document.getElementById('runtime-status');
+  var webMcpStatus = document.getElementById('webmcp-status');
+
+  webMcpStatus.textContent = document.modelContext &&
+    typeof document.modelContext.registerTool === 'function'
+    ? 'WebMCP: available.'
+    : 'WebMCP: unavailable — use the page controls.';
 
   function showJson(panel, value) {
     panel.textContent = JSON.stringify(value, null, 2);
@@ -91,6 +106,7 @@ export const STUDIO_APP_JS = `(function () {
 
   function showError(error) {
     errorPanel.textContent = error && error.message ? error.message : 'Studio request failed.';
+    localStatus.textContent = 'Local companion: unavailable.';
   }
 
   async function requestJson(path, options) {
@@ -103,7 +119,8 @@ export const STUDIO_APP_JS = `(function () {
 
   function selectMacro(macro) {
     state.macroId = macro.id;
-    selectedMacro.textContent = macro.title + ' — ' + macro.effect;
+    selectedMacro.textContent = macro.title + ' — ' + macro.effect +
+      ' Targets: ' + macro.targets.join(', ') + '.';
     previewButton.disabled = false;
     var choices = macroList.querySelectorAll('button');
     choices.forEach(function (choice) {
@@ -112,12 +129,16 @@ export const STUDIO_APP_JS = `(function () {
   }
 
   function renderMacros(result) {
+    localStatus.textContent = 'Local companion: connected.';
+    runtimeStatus.textContent = result.runtime.available
+      ? 'Native runtime: AutoHotkey ' + result.runtime.version + ' verified.'
+      : 'Native runtime: ' + result.runtime.message;
     macroList.replaceChildren();
     result.macros.forEach(function (macro) {
       var choice = document.createElement('button');
       choice.type = 'button';
       choice.dataset.macroId = macro.id;
-      choice.textContent = macro.title;
+      choice.textContent = macro.title + ' — ' + macro.targets.join(', ');
       choice.setAttribute('aria-pressed', 'false');
       choice.addEventListener('click', function () { selectMacro(macro); });
       macroList.appendChild(choice);
@@ -138,7 +159,9 @@ export const STUDIO_APP_JS = `(function () {
 
   function acceptRun(result) {
     state.run = result;
+    state.preview = null;
     showJson(runPanel, result);
+    stageButton.disabled = true;
     statusButton.disabled = false;
     approveButton.disabled = result.state !== 'pending_approval';
   }

@@ -17,6 +17,11 @@ import type {
 
 const RECORD_LIFETIME_MS = 5 * 60 * 1_000;
 const MAX_PUBLIC_DURATION_MS = 120_000;
+const DEFAULT_RECORD_LIMITS: StudioRecordLimits = {
+  previews: 256,
+  runs: 256,
+  tombstones: 512,
+};
 
 export type StudioServiceErrorCode =
   | 'invalid_input'
@@ -27,6 +32,7 @@ export type StudioServiceErrorCode =
   | 'run_expired'
   | 'state_conflict'
   | 'execution_busy'
+  | 'studio_busy'
   | 'execution_unavailable'
   | 'integrity_failed';
 
@@ -39,6 +45,7 @@ const ERROR_MESSAGES: Record<StudioServiceErrorCode, string> = {
   run_expired: 'Run has expired.',
   state_conflict: 'The requested state transition is not allowed.',
   execution_busy: 'Another Studio execution is in progress.',
+  studio_busy: 'Studio is temporarily busy.',
   execution_unavailable: 'Native execution is unavailable.',
   integrity_failed: 'Studio execution integrity check failed.',
 };
@@ -121,23 +128,36 @@ export interface StudioServiceDependencies {
   executionCoordinator?: StudioExecutionCoordinator;
   now?: () => Date;
   generateId?: () => string;
+  recordLimits?: Partial<StudioRecordLimits>;
+}
+
+export interface StudioRecordLimits {
+  previews: number;
+  runs: number;
+  tombstones: number;
 }
 
 export interface StudioExecutionCoordinator {
   tryAcquire(): boolean;
   release(): void;
+  quarantine(): void;
 }
 
 function createExecutionCoordinator(): StudioExecutionCoordinator {
   let locked = false;
+  let quarantined = false;
   return {
     tryAcquire() {
-      if (locked) return false;
+      if (locked || quarantined) return false;
       locked = true;
       return true;
     },
     release() {
-      locked = false;
+      if (!quarantined) locked = false;
+    },
+    quarantine() {
+      quarantined = true;
+      locked = true;
     },
   };
 }
@@ -151,6 +171,7 @@ interface TrustedMacroSnapshot {
   configuredScriptPath: string;
   canonicalScriptPath: string;
   scriptHash: string;
+  scriptSource: Buffer;
   arguments: readonly string[];
   timeoutMs: number;
   successSummary: string;
@@ -169,6 +190,15 @@ interface RunRecord extends TrustedMacroSnapshot {
   expiresAtMs: number;
   state: PublicRunState;
   result: PublicRunResult | null;
+}
+
+interface PreviewTombstone {
+  kind: 'consumed' | 'expired';
+  expiresAtMs: number;
+}
+
+interface RunTombstone {
+  expiresAtMs: number;
 }
 
 function cloneRecord<T extends Readonly<Record<string, unknown>>>(value: T): T {
@@ -216,9 +246,11 @@ export class StudioService {
   private readonly executionCoordinator: StudioExecutionCoordinator;
   private readonly now: () => Date;
   private readonly generateId: () => string;
+  private readonly recordLimits: StudioRecordLimits;
   private readonly previews = new Map<string, PreviewRecord>();
-  private readonly consumedPreviewIds = new Set<string>();
+  private readonly previewTombstones = new Map<string, PreviewTombstone>();
   private readonly runs = new Map<string, RunRecord>();
+  private readonly runTombstones = new Map<string, RunTombstone>();
 
   constructor(dependencies: StudioServiceDependencies) {
     this.macroRoot = dependencies.macroRoot;
@@ -229,6 +261,17 @@ export class StudioService {
     this.executionCoordinator = dependencies.executionCoordinator ?? globalExecutionCoordinator;
     this.now = dependencies.now ?? (() => new Date());
     this.generateId = dependencies.generateId ?? randomUUID;
+    this.recordLimits = {
+      previews: this.normalizeRecordLimit(
+        dependencies.recordLimits?.previews,
+        DEFAULT_RECORD_LIMITS.previews
+      ),
+      runs: this.normalizeRecordLimit(dependencies.recordLimits?.runs, DEFAULT_RECORD_LIMITS.runs),
+      tombstones: this.normalizeRecordLimit(
+        dependencies.recordLimits?.tombstones,
+        DEFAULT_RECORD_LIMITS.tombstones
+      ),
+    };
   }
 
   getRuntimeStatus(): PublicRuntimeStatus {
@@ -247,6 +290,7 @@ export class StudioService {
   }
 
   listMacros(): { macros: readonly PublicMacro[]; runtime: PublicRuntimeStatus } {
+    this.sweepExpiredRecords();
     return {
       macros: this.catalog.list().map(cloneMacro),
       runtime: this.getRuntimeStatus(),
@@ -254,6 +298,7 @@ export class StudioService {
   }
 
   async createPreview(input: { macroId: string; parameters: unknown }): Promise<PublicPreview> {
+    this.sweepExpiredRecords();
     if (!input || typeof input !== 'object' || typeof input.macroId !== 'string') {
       throw serviceError('invalid_input', 400);
     }
@@ -266,8 +311,11 @@ export class StudioService {
     } catch {
       throw serviceError('invalid_input', 400);
     }
+    this.ensureCapacity(this.previews.size, this.recordLimits.previews);
 
     const trusted = await this.createTrustedSnapshot(definition, parameters);
+    this.sweepExpiredRecords();
+    this.ensureCapacity(this.previews.size, this.recordLimits.previews);
     const createdAtMs = this.now().getTime();
     const previewId = this.generateId();
     const preview: PreviewRecord = {
@@ -281,6 +329,7 @@ export class StudioService {
   }
 
   requestRun(input: { previewId: string }): PublicRun {
+    this.sweepExpiredRecords();
     if (!input || typeof input !== 'object' || typeof input.previewId !== 'string') {
       throw serviceError('invalid_input', 400);
     }
@@ -288,14 +337,17 @@ export class StudioService {
 
     const preview = this.previews.get(input.previewId);
     if (!preview) {
-      if (this.consumedPreviewIds.has(input.previewId)) {
+      const tombstone = this.previewTombstones.get(input.previewId);
+      if (tombstone?.kind === 'consumed') {
         throw serviceError('state_conflict', 409);
       }
+      if (tombstone?.kind === 'expired') throw serviceError('preview_expired', 410);
       throw serviceError('preview_not_found', 404);
     }
     if (this.isExpired(preview.expiresAtMs)) {
       throw serviceError('preview_expired', 410);
     }
+    this.ensureCapacity(this.runs.size, this.recordLimits.runs);
 
     const createdAtMs = this.now().getTime();
     const runId = this.generateId();
@@ -307,6 +359,7 @@ export class StudioService {
       configuredScriptPath: preview.configuredScriptPath,
       canonicalScriptPath: preview.canonicalScriptPath,
       scriptHash: preview.scriptHash,
+      scriptSource: Buffer.from(preview.scriptSource),
       arguments: preview.arguments,
       timeoutMs: preview.timeoutMs,
       successSummary: preview.successSummary,
@@ -318,16 +371,18 @@ export class StudioService {
     };
 
     this.previews.delete(input.previewId);
-    this.consumedPreviewIds.add(input.previewId);
+    this.rememberPreviewTombstone(input.previewId, 'consumed', createdAtMs);
     this.runs.set(runId, run);
     return this.toPublicRun(run);
   }
 
   getRun(runId: string): PublicRun {
+    this.sweepExpiredRecords();
     return this.toPublicRun(this.requireLiveRun(runId));
   }
 
   async approveRun(runId: string): Promise<PublicRun> {
+    this.sweepExpiredRecords();
     const runtime = this.requireRuntime();
     const run = this.requireLiveRun(runId);
     if (run.state !== 'pending_approval') throw serviceError('state_conflict', 409);
@@ -365,6 +420,7 @@ export class StudioService {
         return this.toPublicRun(run);
       }
       if (approvalResult.decision === 'failed') {
+        if (approvalResult.requiresQuarantine) this.executionCoordinator.quarantine();
         run.state = 'failed';
         run.result = this.fixedFailure('Native confirmation failed.', approvalResult.durationMs);
         return this.toPublicRun(run);
@@ -389,7 +445,7 @@ export class StudioService {
       try {
         executionResult = await this.executor.execute({
           runtime,
-          scriptPath: run.canonicalScriptPath,
+          scriptSource: run.scriptSource,
           arguments: run.arguments,
           timeoutMs: run.timeoutMs,
           successSummary: run.successSummary,
@@ -402,6 +458,7 @@ export class StudioService {
       }
 
       run.result = this.boundExecutionResult(run, executionResult);
+      if (executionResult.requiresQuarantine) this.executionCoordinator.quarantine();
       run.state = run.result.status;
       return this.toPublicRun(run);
     } finally {
@@ -417,13 +474,73 @@ export class StudioService {
   private requireLiveRun(runId: string): RunRecord {
     if (typeof runId !== 'string') throw serviceError('invalid_input', 400);
     const run = this.runs.get(runId);
-    if (!run) throw serviceError('run_not_found', 404);
+    if (!run) {
+      if (this.runTombstones.has(runId)) throw serviceError('run_expired', 410);
+      throw serviceError('run_not_found', 404);
+    }
     if (this.isExpired(run.expiresAtMs)) throw serviceError('run_expired', 410);
     return run;
   }
 
   private isExpired(expiresAtMs: number): boolean {
     return this.now().getTime() >= expiresAtMs;
+  }
+
+  private normalizeRecordLimit(value: number | undefined, fallback: number): number {
+    if (!Number.isSafeInteger(value) || (value ?? 0) < 1) return fallback;
+    return value as number;
+  }
+
+  private ensureCapacity(size: number, limit: number): void {
+    if (size >= limit) throw serviceError('studio_busy', 503);
+  }
+
+  private sweepExpiredRecords(): void {
+    const nowMs = this.now().getTime();
+    for (const [previewId, tombstone] of this.previewTombstones) {
+      if (nowMs >= tombstone.expiresAtMs) this.previewTombstones.delete(previewId);
+    }
+    for (const [runId, tombstone] of this.runTombstones) {
+      if (nowMs >= tombstone.expiresAtMs) this.runTombstones.delete(runId);
+    }
+    for (const [previewId, preview] of this.previews) {
+      if (nowMs >= preview.expiresAtMs) {
+        this.previews.delete(previewId);
+        this.rememberPreviewTombstone(previewId, 'expired', nowMs);
+      }
+    }
+    for (const [runId, run] of this.runs) {
+      const active = run.state === 'awaiting_native_confirmation' || run.state === 'running';
+      if (!active && nowMs >= run.expiresAtMs) {
+        this.runs.delete(runId);
+        this.rememberRunTombstone(runId, nowMs);
+      }
+    }
+  }
+
+  private rememberPreviewTombstone(
+    previewId: string,
+    kind: PreviewTombstone['kind'],
+    nowMs: number
+  ): void {
+    this.previewTombstones.delete(previewId);
+    this.evictOldestTombstone(this.previewTombstones);
+    this.previewTombstones.set(previewId, {
+      kind,
+      expiresAtMs: nowMs + RECORD_LIFETIME_MS,
+    });
+  }
+
+  private rememberRunTombstone(runId: string, nowMs: number): void {
+    this.runTombstones.delete(runId);
+    this.evictOldestTombstone(this.runTombstones);
+    this.runTombstones.set(runId, { expiresAtMs: nowMs + RECORD_LIFETIME_MS });
+  }
+
+  private evictOldestTombstone<T>(records: Map<string, T>): void {
+    if (records.size < this.recordLimits.tombstones) return;
+    const oldestId = records.keys().next().value as string | undefined;
+    if (oldestId !== undefined) records.delete(oldestId);
   }
 
   private async createTrustedSnapshot(
@@ -463,6 +580,7 @@ export class StudioService {
       configuredScriptPath: definition.scriptPath,
       canonicalScriptPath,
       scriptHash: sha256(bytes),
+      scriptSource: Buffer.from(bytes),
       arguments: argumentsForMacro,
       timeoutMs: definition.timeoutMs,
       successSummary: definition.successSummary,

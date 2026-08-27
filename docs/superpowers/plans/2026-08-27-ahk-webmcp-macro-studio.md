@@ -11,8 +11,10 @@ AHK execution.
 
 **Architecture:** Mount a separate /studio application beside the existing
 dashboard. A curated catalog and state machine bind validated parameters to
-canonical script hashes; a pinned AutoHotkey v2 runtime, native approval prompt,
-and narrow process adapter are the only path to execution. The browser registers
+canonical script hashes and retained verified bytes; a pinned AutoHotkey v2
+runtime, pinned native approval prompt, and narrow stdin-source process adapter
+are the only path to execution. Studio is mounted only on a configured loopback
+listener, with a real-socket boundary on every request. The browser registers
 four page-scoped WebMCP tools, while approval remains outside WebMCP and
 requires a native Windows dialog.
 
@@ -34,12 +36,47 @@ with ts-jest, AutoHotkey v2, WebMCP document.modelContext.registerTool.
 - No request may provide a path, source, executable, working directory, runner,
   watch setting, raw command, or arbitrary argument array.
 - Macro files live beneath path.resolve(process.cwd(), "scripts", "studio").
-- Every Studio POST requires a loopback Host and an exact matching http Origin.
+- Studio is never mounted on a non-loopback configured listener. Every Studio
+  request requires an actual loopback remote socket and a literal loopback Host
+  authority whose port equals the socket's actual local port; every POST also
+  requires the exact matching http Origin.
+- Code-owned probe, approval, and catalog script bytes must be canonicalized,
+  hash-pinned, retained, and passed to AutoHotkey through its `*` stdin target.
+  A later mutable-path spawn or a second stat/hash alone is not an integrity
+  boundary.
 - AHK_MCP_STUDIO_EXECUTION=off must skip executable discovery, hashing, version
   probing, approval, and macro launch.
 - Public DTOs must never include executable paths, script paths, commands,
   stdout, stderr, or stack traces.
 - Do not tunnel port 8787 or claim a public viols.dev URL in this phase.
+
+## Final-Review Binding Amendments (2026-08-27)
+
+These amendments correct implementation assumptions in the original task
+snippets and take precedence wherever an older example below still implies a
+path-based script spawn or header-only loopback check:
+
+1. The process runner accepts verified `scriptSource`, starts only the pinned
+   interpreter with `['/ErrorStdOut=utf-8', '*', ...codeOwnedArguments]`, and
+   writes a private source copy to stdin. `VersionProbe.ahk`, `Approval.ahk`,
+   and the selected catalog macro are never reopened by AutoHotkey.
+2. Timeout and tracked process/pipe failures do not settle until child `close`.
+   Graceful termination escalates to forced kill within bounded intervals. If
+   termination remains unconfirmed, the shared execution coordinator enters a
+   persistent fail-closed quarantine that blocks all later approvals.
+3. A header-only `/studio` boundary is mounted before global rejection
+   middleware. It adds headers only and never bypasses Host, Origin, rate,
+   bearer-auth, or parser checks. Those failures return fixed Studio bodies.
+   Functional Studio routes are not constructed or mounted for a configured
+   non-loopback listener.
+4. Route admission uses `req.socket.remoteAddress` and `req.socket.localPort`,
+   not forwarding headers or configured allowlists. Only literal `localhost`,
+   `127.0.0.1`, and `[::1]` authorities with the actual local port are accepted;
+   IPv4-mapped loopback is normalized safely.
+5. Preview, run, and timestamped tombstone stores are swept lazily, capped
+   deterministically, and never evict active execution. New work fails with a
+   fixed `studio_busy` response at capacity while five-minute validity and
+   one-use behavior remain exact.
 
 ---
 
@@ -241,6 +278,7 @@ git commit -m "feat(studio): add curated AHK macro catalog"
 
 - Create: src/studio/ahk-process.ts
 - Create: src/studio/ahk-runtime.ts
+- Create: src/studio/verified-script.ts
 - Create: src/studio/native-approval.ts
 - Create: src/studio/ahk-executor.ts
 - Test: Tests/unit/studio-ahk-runtime.test.ts
@@ -332,10 +370,7 @@ describe('Studio AHK boundaries', () => {
       sha256: 'a'.repeat(64),
       assertIntegrity: async () => undefined,
     };
-    const approval = createNativeApprovalGateway(
-      runner,
-      'C:\\fixed\\Approval.ahk'
-    );
+    const approval = createNativeApprovalGateway(runner, pinnedApprovalScript);
     const executor = createStudioMacroExecutor(runner);
     await expect(
       approval.confirm({ runtime, title: 'Macro', effect: 'Effect' })
@@ -345,7 +380,7 @@ describe('Studio AHK boundaries', () => {
     });
     const result = await executor.execute({
       runtime,
-      scriptPath: 'C:\\fixed\\Macro.ahk',
+      scriptSource: Buffer.from('#Requires AutoHotkey v2.0'),
       arguments: ['Hello'],
       timeoutMs: 30_000,
       successSummary: 'Finished.',
@@ -379,7 +414,7 @@ Define:
 ```ts
 export interface StudioProcessRequest {
   executablePath: string;
-  scriptPath: string;
+  scriptSource: Uint8Array;
   arguments: readonly string[];
   timeoutMs: number;
   outputLimitChars: number;
@@ -395,6 +430,7 @@ export type StudioProcessOutcome =
       stderr: string;
     }
   | { kind: 'timed_out'; durationMs: number }
+  | { kind: 'termination_unconfirmed'; durationMs: number }
   | { kind: 'spawn_failed'; durationMs: number };
 
 export interface StudioProcessRunner {
@@ -402,27 +438,35 @@ export interface StudioProcessRunner {
 }
 ```
 
-The real runner must call spawn(executablePath, ["/ErrorStdOut=utf-8",
-scriptPath, ...arguments]), register and unregister the PID through
-processManager, cap each stream at 4,096 characters, terminate once at timeout,
-and settle once.
+The real runner must call
+`spawn(executablePath, ["/ErrorStdOut=utf-8", "*", ...arguments])`, pipe a
+private copy of `scriptSource` to stdin, register and unregister the PID through
+processManager, and cap each stream at 4,096 characters. On timeout or a tracked
+spawn/pipe failure it must request graceful termination, escalate to a forced
+kill after a bounded grace interval, and settle exactly once only after `close`.
+If `close` cannot be confirmed after the bounded forced-kill wait, return
+`termination_unconfirmed` without unregistering the still-unconfirmed process.
 
 Define RuntimeAvailability with unavailable reasons disabled, not_found,
 invalid_executable, probe_failed, and unsupported_version.
 initializeAhkRuntime() must return disabled before calling any dependency when
-executionMode is off. In on mode it must realpath a regular .exe, run only the
-fixed version probe with a 5,000 ms timeout, require a numeric major version of
-at least 2, hash the executable with SHA-256, and close over that canonical path
-and hash in assertIntegrity().
+executionMode is off. In on mode it must realpath a regular .exe, canonicalize
+and hash-pin the fixed version probe source, run only those retained bytes with
+a 5,000 ms timeout, require a numeric major version of at least 2, hash the
+executable with SHA-256, and close over that canonical path and hash in
+assertIntegrity(). Helper replacement between verification and process creation
+must not change the source consumed by the interpreter.
 
 - [ ] **Step 4: Implement fixed approval and execution mapping**
 
-Approval must call runtime.assertIntegrity(), then run only Approval.ahk with
-[title, effect], 60,000 ms, and windowsHide false. Map exit 0 to approved, exit
-2 to denied, and all other outcomes to failed with a fixed reason.
+Approval must call runtime.assertIntegrity(), revalidate the composition-pinned
+Approval.ahk helper, then run only its retained source bytes with [title,
+effect], 60,000 ms, and windowsHide false. Map exit 0 to approved, exit 2 to
+denied, and all other outcomes to failed with a fixed reason. An unconfirmed
+termination also carries a private quarantine signal to the service.
 
-Execution must call runtime.assertIntegrity(), run only the service-provided
-canonical catalog script and fixed ordered arguments, and return only:
+Execution must call runtime.assertIntegrity(), run only service-provided,
+preview-bound source bytes and fixed ordered arguments, and return only:
 
 ```ts
 export interface StudioExecutionResult {
@@ -433,7 +477,10 @@ export interface StudioExecutionResult {
 }
 ```
 
-Discard captured streams and all local paths.
+Discard captured streams and all local paths. Add regressions for helper tamper,
+probe replacement, catalog check-to-launch replacement, delayed `close`, kill
+failure, forced-kill escalation, exactly-once settlement/cleanup, and
+unconfirmed-termination quarantine before implementing these amendments.
 
 - [ ] **Step 5: Run focused tests, type check, and verify GREEN**
 
@@ -447,7 +494,7 @@ Expected: both suites and type check exit 0.
 - [ ] **Step 6: Commit only Task 2 files**
 
 ```powershell
-git add -- src/studio/ahk-process.ts src/studio/ahk-runtime.ts src/studio/native-approval.ts src/studio/ahk-executor.ts Tests/unit/studio-ahk-runtime.test.ts Tests/unit/studio-ahk-adapters.test.ts
+git add -- src/studio/ahk-process.ts src/studio/ahk-runtime.ts src/studio/verified-script.ts src/studio/native-approval.ts src/studio/ahk-executor.ts Tests/unit/studio-ahk-runtime.test.ts Tests/unit/studio-ahk-adapters.test.ts
 git commit -m "feat(studio): add trusted AutoHotkey runtime boundaries"
 ```
 
@@ -574,23 +621,37 @@ type StudioServiceErrorCode =
   | 'run_expired'
   | 'state_conflict'
   | 'execution_busy'
+  | 'studio_busy'
   | 'execution_unavailable'
   | 'integrity_failed';
 ```
 
-Use 400, 404, 409, 410, 500, or 503 as specified. Store canonical paths and
-fixed arguments only in private maps. Public objects include IDs, metadata,
-validated parameters, SHA-256, ISO timestamps, state, and bounded result only.
+Use 400, 404, 409, 410, 500, or 503 as specified. Store canonical paths,
+verified source bytes, and fixed arguments only in private maps. Public objects
+include IDs, metadata, validated parameters, SHA-256, ISO timestamps, state, and
+bounded result only.
 
 createPreview() must validate, realpath both root and script, require a regular
-.ahk beneath the root, hash bytes, and store a five-minute preview. requestRun()
-must reject unavailable execution with 503, atomically delete a valid preview,
-and store a five-minute pending run.
+.ahk beneath the root, hash and retain the exact bytes, and store a five-minute
+preview. requestRun() must reject unavailable execution with 503, atomically
+delete a valid preview, preserve a timestamped one-use tombstone, copy the
+verified bytes, and store a five-minute pending run.
 
 approveRun() must acquire one global lock before awaiting, set
 awaiting_native_confirmation synchronously, require runtime integrity, await the
 native gate, recheck runtime and script path/hash after approval, execute once,
-store a terminal state, and release the lock in finally.
+pass only the preview-bound source bytes to the executor, store a terminal
+state, and release the lock in finally.
+
+Before each public operation, lazily sweep expired previews, inactive runs, and
+expired tombstones. Active `awaiting_native_confirmation` and `running` records
+must not be swept. Apply deterministic caps to preview, run, and tombstone
+records: reject new live records with fixed `studio_busy` rather than evicting
+them, and evict the oldest tombstone at its cap. Recheck capacity after async
+preview hashing to close concurrent-admission races. Terminal runs remain
+pollable for their full five-minute window. If either native adapter reports
+unconfirmed termination, quarantine the global coordinator before `finally`
+attempts release.
 
 - [ ] **Step 4: Run service and boundary tests and verify GREEN**
 
@@ -717,49 +778,34 @@ Expected: FAIL because Studio HTTP/page modules do not exist.
 
 - [ ] **Step 4: Implement secure routes and fixed error mapping**
 
-mountStudio() must derive the exact request authority at runtime so ephemeral
-ports work:
+mountStudio() must derive the exact bound authority from the real socket so
+ephemeral ports work and forwarding headers cannot widen the boundary:
 
 ```ts
-function requireLoopbackMutation(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void {
+function hasExactBoundLoopbackAuthority(req: Request): boolean {
   const host = req.headers.host;
-  const origin = req.headers.origin;
-  if (!host || !origin) {
-    sendStudioError(
-      res,
-      403,
-      'loopback_required',
-      'Studio changes require the local page.'
-    );
-    return;
-  }
-  const requestUrl = new URL('http://' + host);
-  const originUrl = new URL(origin);
-  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(
-    requestUrl.hostname
+  const localPort = req.socket.localPort;
+  const remote = normalizeIpv4MappedAddress(req.socket.remoteAddress);
+  if (!isLoopbackAddress(remote) || typeof localPort !== 'number') return false;
+  const match = /^(?:localhost|127\.0\.0\.1|\[::1\]):(\d{1,5})$/.exec(
+    host ?? ''
   );
-  const exact =
-    originUrl.protocol === 'http:' && originUrl.host === requestUrl.host;
-  if (!loopback || !exact) {
-    sendStudioError(
-      res,
-      403,
-      'loopback_required',
-      'Studio changes require the local page.'
-    );
-    return;
-  }
-  next();
+  return Boolean(match && Number(match[1]) === localPort);
 }
 ```
 
-Apply the required no-store, nosniff, no-referrer, and CSP headers to every
-/studio response. Register the five JSON routes and map only StudioServiceError
-fields; all unknown errors return a fixed 500 body.
+Apply this check to every Studio request. Every POST must additionally require
+raw Origin to equal the exact normalized `http://<Host>` origin. Add modeled
+remote-socket, spoofed Host/Origin, IPv4-mapped loopback, and local-port
+mismatch regressions.
+
+Expose a header-only boundary that applies the required no-store, nosniff,
+no-referrer, and CSP headers before global middleware, while keeping
+mountStudio() usable in standalone tests. Register the five JSON routes and map
+only StudioServiceError fields; malformed JSON and all unknown errors return
+fixed bodies without metadata. The fallback UI visibly reports local,
+AutoHotkey, and WebMCP status, shows catalog targets, labels approval **Run on
+this PC**, and clears/disables stale Stage state when WebMCP publishes a run.
 
 - [ ] **Step 5: Implement external fallback UI and WebMCP scripts**
 
@@ -821,10 +867,13 @@ git commit -m "feat(studio): add secure WebMCP Macro Studio page"
 
 **Interfaces:**
 
-- createStudioService() composes process runner, runtime mode, catalog,
-  approval, executor, and service.
-- startHttpMode() awaits the composition and calls mountStudio() after existing
-  host/origin/auth/body middleware, beside mountDashboard(), before /mcp.
+- createStudioService() composes process runner, runtime mode, catalog, pinned
+  helper source, approval, executor, and service.
+- startHttpMode() installs the Studio header-only boundary before existing
+  host/origin/rate/auth/body middleware, but only for a configured loopback
+  listener. It then awaits composition and mounts functional routes behind those
+  protections, beside mountDashboard(), before /mcp. Non-loopback listeners
+  never construct or mount Studio.
 
 - [ ] **Step 1: Write the failing built-server smoke test**
 
@@ -882,24 +931,46 @@ const macroRoot = path.resolve(process.cwd(), 'scripts', 'studio');
 const executionMode =
   process.env.AHK_MCP_STUDIO_EXECUTION === 'off' ? 'off' : 'on';
 const runner = createStudioProcessRunner();
-const runtime = await initializeAhkRuntime({
+let runtime = await initializeAhkRuntime({
   executionMode,
   processRunner: runner,
   versionProbePath: path.join(macroRoot, 'VersionProbe.ahk'),
 });
 const catalog = createStudioMacroCatalog(macroRoot);
-const approval = createNativeApprovalGateway(
-  runner,
-  path.join(macroRoot, 'Approval.ahk')
-);
+let approval = unavailableApprovalGateway;
+if (runtime.available) {
+  try {
+    const approvalScript = await pinStudioScript(
+      path.join(macroRoot, 'Approval.ahk'),
+      { rootPath: macroRoot }
+    );
+    approval = createNativeApprovalGateway(runner, approvalScript);
+  } catch {
+    runtime = {
+      available: false,
+      reason: 'probe_failed',
+      message: 'AutoHotkey runtime could not be verified.',
+    };
+  }
+}
 const executor = createStudioMacroExecutor(runner);
 return new StudioService({ macroRoot, catalog, runtime, approval, executor });
 ```
 
-Import createStudioService and mountStudio in src/server.ts. In startHttpMode(),
-after app.use(express.json/urlencoded) and routing-header validation, await the
-service and mount it next to mountDashboard(). Do not move authentication or
-expose any new route outside those existing middlewares.
+Import createStudioService, mountStudioHeaderBoundary, mountStudio, and the
+fixed Studio error sender in src/server.ts. In startHttpMode(), compute
+eligibility from the configured listener host. For an eligible listener, install
+the header-only boundary immediately after Express construction; global Host,
+Origin, rate-limit, and bearer-auth rejection handlers must branch on that
+boundary marker to return fixed Studio errors while still enforcing the check.
+After json/urlencoded and routing-header validation, await the service and mount
+it next to mountDashboard(). Do not construct or mount it otherwise.
+
+The built integration regressions must cover non-loopback mount exclusion, fixed
+Host/Origin/auth/parser/rate failures with Studio headers, an allowlisted wrong
+Host port rejected against the actual socket local port, and a minimal
+successful `/mcp` initialization proving the existing protocol boundary remains
+intact.
 
 - [ ] **Step 4: Rebuild and run smoke/focused tests to verify GREEN**
 

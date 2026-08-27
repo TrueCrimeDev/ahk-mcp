@@ -58,9 +58,34 @@ function createHttpTestService(overrides: Partial<HttpStudioService> = {}): Http
   };
 }
 
-async function startStudioHttpFixture(service: HttpStudioService = createHttpTestService()) {
+interface SocketOverrides {
+  remoteAddress?: string;
+  localPort?: number;
+}
+
+async function startStudioHttpFixture(
+  service: HttpStudioService = createHttpTestService(),
+  socketOverrides: SocketOverrides = {}
+) {
   const app = express();
   app.use(express.json());
+  if (Object.keys(socketOverrides).length > 0) {
+    app.use((req, _res, next) => {
+      if (socketOverrides.remoteAddress !== undefined) {
+        Object.defineProperty(req.socket, 'remoteAddress', {
+          configurable: true,
+          value: socketOverrides.remoteAddress,
+        });
+      }
+      if (socketOverrides.localPort !== undefined) {
+        Object.defineProperty(req.socket, 'localPort', {
+          configurable: true,
+          value: socketOverrides.localPort,
+        });
+      }
+      next();
+    });
+  }
   mountStudio(app, service);
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -294,6 +319,94 @@ describe('Studio HTTP surface', () => {
         expectStudioHeaders(response);
         expect(await response.json()).toMatchObject({ previewId });
       }
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it.each(['203.0.113.10', '::ffff:203.0.113.10'])(
+    'rejects Studio reads and mutations from a non-loopback remote socket %s despite spoofed authorities',
+    async remoteAddress => {
+      let calls = 0;
+      const fixture = await startStudioHttpFixture(
+        createHttpTestService({
+          listMacros: () => {
+            calls += 1;
+            return {
+              macros: [macro],
+              runtime: { available: false, reason: 'disabled', message: '' },
+            };
+          },
+          createPreview: async () => {
+            calls += 1;
+            return preview;
+          },
+        }),
+        { remoteAddress }
+      );
+      try {
+        const read = await fetch(fixture.url + '/studio/api/macros');
+        expect(read.status).toBe(403);
+        expectStudioHeaders(read);
+        expect(await read.json()).toEqual({
+          code: 'loopback_required',
+          message: 'Studio is available only on this PC.',
+        });
+
+        const mutation = await fetch(fixture.url + '/studio/api/previews', {
+          method: 'POST',
+          headers: mutationHeaders(fixture.port),
+          body: JSON.stringify({ macroId: macro.id, parameters: { message: 'Hi' } }),
+        });
+        expect(mutation.status).toBe(403);
+        expectStudioHeaders(mutation);
+        expect(await mutation.json()).toEqual({
+          code: 'loopback_required',
+          message: 'Studio changes require the local page.',
+        });
+        expect(calls).toBe(0);
+      } finally {
+        await fixture.close();
+      }
+    }
+  );
+
+  it('rejects a Host port that differs from the actual bound socket port', async () => {
+    let calls = 0;
+    const fixture = await startStudioHttpFixture(
+      createHttpTestService({
+        listMacros: () => {
+          calls += 1;
+          return {
+            macros: [macro],
+            runtime: { available: false, reason: 'disabled', message: '' },
+          };
+        },
+      }),
+      { localPort: 65_000 }
+    );
+    try {
+      const response = await fetch(fixture.url + '/studio/api/macros');
+      expect(response.status).toBe(403);
+      expectStudioHeaders(response);
+      expect(await response.json()).toEqual({
+        code: 'loopback_required',
+        message: 'Studio is available only on this PC.',
+      });
+      expect(calls).toBe(0);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it('accepts an IPv4-mapped loopback remote socket', async () => {
+    const fixture = await startStudioHttpFixture(createHttpTestService(), {
+      remoteAddress: '::ffff:127.0.0.1',
+    });
+    try {
+      const response = await fetch(fixture.url + '/studio/api/macros');
+      expect(response.status).toBe(200);
+      expectStudioHeaders(response);
     } finally {
       await fixture.close();
     }

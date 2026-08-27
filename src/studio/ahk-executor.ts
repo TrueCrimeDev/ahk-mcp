@@ -3,7 +3,7 @@ import type { PinnedAhkRuntime } from './ahk-runtime.js';
 
 export interface StudioMacroExecutionRequest {
   runtime: PinnedAhkRuntime;
-  scriptPath: string;
+  scriptSource: Uint8Array;
   arguments: readonly string[];
   timeoutMs: number;
   successSummary: string;
@@ -15,6 +15,7 @@ export interface StudioExecutionResult {
   exitCode: number | null;
   durationMs: number;
   summary: string;
+  requiresQuarantine?: true;
 }
 
 export interface StudioMacroExecutor {
@@ -39,7 +40,7 @@ export function createStudioMacroExecutor(processRunner: StudioProcessRunner): S
       try {
         outcome = await processRunner.run({
           executablePath: request.runtime.executablePath,
-          scriptPath: request.scriptPath,
+          scriptSource: request.scriptSource,
           arguments: request.arguments,
           timeoutMs: request.timeoutMs,
           outputLimitChars: 4_096,
@@ -67,6 +68,9 @@ export function createStudioMacroExecutor(processRunner: StudioProcessRunner): S
         exitCode: outcome.kind === 'exited' ? outcome.exitCode : null,
         durationMs: outcome.durationMs,
         summary: request.failureSummary,
+        ...(outcome.kind === 'termination_unconfirmed'
+          ? { requiresQuarantine: true as const }
+          : {}),
       };
     },
   };

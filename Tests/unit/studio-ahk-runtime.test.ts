@@ -53,12 +53,18 @@ describe('Studio AHK runtime', () => {
   });
 
   it('rejects a runtime whose bytes change between the pinned hash and version probe', async () => {
-    let bytes = Buffer.from('trusted');
-    const readFile = jest.fn<(path: string) => Promise<Buffer>>(async () => bytes);
+    const executablePath = 'C:\\AutoHotkey64.exe';
+    const versionProbePath = 'C:\\repo\\scripts\\studio\\VersionProbe.ahk';
+    let runtimeBytes = Buffer.from('trusted');
+    const readFile = jest.fn<(path: string) => Promise<Buffer>>(async filePath =>
+      filePath === executablePath ? runtimeBytes : Buffer.from('trusted probe')
+    );
     const processRunner = {
       run: jest.fn<StudioProcessRunner['run']>().mockImplementation(async () => {
-        expect(readFile).toHaveBeenCalledTimes(1);
-        bytes = Buffer.from('replaced-after-hash');
+        expect(
+          readFile.mock.calls.filter(([filePath]) => filePath === executablePath)
+        ).toHaveLength(1);
+        runtimeBytes = Buffer.from('replaced-after-hash');
         return {
           kind: 'exited',
           exitCode: 0,
@@ -71,12 +77,12 @@ describe('Studio AHK runtime', () => {
 
     const state = await initializeAhkRuntime({
       executionMode: 'on',
-      resolveCandidate: () => 'C:\\AutoHotkey64.exe',
+      resolveCandidate: () => executablePath,
       realpath: async (value: string) => value,
       stat: async () => ({ isFile: () => true }),
       readFile,
       processRunner,
-      versionProbePath: 'C:\\repo\\scripts\\studio\\VersionProbe.ahk',
+      versionProbePath,
     });
 
     expect(state).toEqual({
@@ -84,7 +90,77 @@ describe('Studio AHK runtime', () => {
       reason: 'invalid_executable',
       message: 'AutoHotkey runtime is invalid.',
     });
-    expect(readFile).toHaveBeenCalledTimes(2);
+    expect(readFile.mock.calls.filter(([filePath]) => filePath === executablePath)).toHaveLength(2);
+  });
+
+  it('launches the exact verified probe bytes even when the helper path is replaced at invocation', async () => {
+    const executablePath = 'C:\\AutoHotkey64.exe';
+    const versionProbePath = 'C:\\repo\\scripts\\studio\\VersionProbe.ahk';
+    const trustedProbe = Buffer.from('FileAppend(A_AhkVersion, "*")');
+    let currentProbe = Buffer.from(trustedProbe);
+    let launchedProbe: Buffer | undefined;
+    let processRequest: Record<string, unknown> | undefined;
+    const readFile = jest.fn<(filePath: string) => Promise<Buffer>>(async filePath =>
+      filePath === executablePath ? Buffer.from('trusted-runtime') : Buffer.from(currentProbe)
+    );
+    const processRunner = {
+      run: jest.fn<StudioProcessRunner['run']>().mockImplementation(async request => {
+        processRequest = request as unknown as Record<string, unknown>;
+        currentProbe = Buffer.from('ExitApp 7');
+        launchedProbe = Buffer.from(
+          (request as unknown as { scriptSource: Uint8Array }).scriptSource
+        );
+        return {
+          kind: 'exited',
+          exitCode: 0,
+          durationMs: 1,
+          stdout: '2.0.19',
+          stderr: '',
+        };
+      }),
+    };
+
+    const state = await initializeAhkRuntime({
+      executionMode: 'on',
+      resolveCandidate: () => executablePath,
+      realpath: async value => value,
+      stat: async () => ({ isFile: () => true }),
+      readFile,
+      processRunner,
+      versionProbePath,
+    });
+
+    expect(state.available).toBe(true);
+    expect(launchedProbe).toEqual(trustedProbe);
+    expect(processRequest).not.toHaveProperty('scriptPath');
+  });
+
+  it('rejects probe helper tampering detected between pinning and launch revalidation', async () => {
+    const executablePath = 'C:\\AutoHotkey64.exe';
+    const versionProbePath = 'C:\\repo\\scripts\\studio\\VersionProbe.ahk';
+    let probeReads = 0;
+    const processRunner = { run: jest.fn<StudioProcessRunner['run']>() };
+
+    const state = await initializeAhkRuntime({
+      executionMode: 'on',
+      resolveCandidate: () => executablePath,
+      realpath: async value => value,
+      stat: async () => ({ isFile: () => true }),
+      readFile: async filePath => {
+        if (filePath === executablePath) return Buffer.from('trusted-runtime');
+        probeReads += 1;
+        return Buffer.from(probeReads === 1 ? 'trusted probe' : 'tampered probe');
+      },
+      processRunner,
+      versionProbePath,
+    });
+
+    expect(state).toEqual({
+      available: false,
+      reason: 'probe_failed',
+      message: 'AutoHotkey runtime could not be verified.',
+    });
+    expect(processRunner.run).not.toHaveBeenCalled();
   });
 
   it('rejects an invalid executable before probing it', async () => {
@@ -132,7 +208,7 @@ describe('Studio AHK runtime', () => {
     });
     expect(processRunner.run).toHaveBeenCalledWith({
       executablePath: 'C:\\AutoHotkey64.exe',
-      scriptPath: 'C:\\repo\\scripts\\studio\\VersionProbe.ahk',
+      scriptSource: Buffer.from('trusted'),
       arguments: [],
       timeoutMs: 5_000,
       outputLimitChars: 4_096,

@@ -42,14 +42,14 @@ function serviceStub(): Pick<
   };
 }
 
-async function getWebMcpAsset(): Promise<string> {
+async function getStudioAsset(assetPath: string): Promise<string> {
   const app = express();
   mountStudio(app, serviceStub());
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try {
     const port = (server.address() as AddressInfo).port;
-    const response = await fetch(`http://127.0.0.1:${port}/studio/webmcp.js`);
+    const response = await fetch(`http://127.0.0.1:${port}${assetPath}`);
     expect(response.status).toBe(200);
     return await response.text();
   } finally {
@@ -59,6 +59,8 @@ async function getWebMcpAsset(): Promise<string> {
   }
 }
 
+const getWebMcpAsset = () => getStudioAsset('/studio/webmcp.js');
+
 class FakeCustomEvent {
   readonly type: string;
   readonly detail: unknown;
@@ -66,6 +68,40 @@ class FakeCustomEvent {
   constructor(type: string, init: { detail: unknown }) {
     this.type = type;
     this.detail = init.detail;
+  }
+}
+
+class FakeElement {
+  textContent = '';
+  disabled = false;
+  value = '';
+  type = '';
+  readonly dataset: Record<string, string> = {};
+  readonly children: FakeElement[] = [];
+  readonly attributes = new Map<string, string>();
+  readonly listeners = new Map<string, Array<(event?: FakeCustomEvent) => void>>();
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+
+  addEventListener(name: string, listener: (event?: FakeCustomEvent) => void): void {
+    const listeners = this.listeners.get(name) ?? [];
+    listeners.push(listener);
+    this.listeners.set(name, listeners);
+  }
+
+  replaceChildren(...children: FakeElement[]): void {
+    this.children.splice(0, this.children.length, ...children);
+  }
+
+  appendChild(child: FakeElement): FakeElement {
+    this.children.push(child);
+    return child;
+  }
+
+  querySelectorAll(selector: string): FakeElement[] {
+    return selector === 'button' ? [...this.children] : [];
   }
 }
 
@@ -218,5 +254,90 @@ describe('Studio WebMCP classic-script contract', () => {
     await (vm.runInContext('globalThis.__ahkStudioWebMcpReady', context) as Promise<void>);
 
     expect(dispatched).toBe(false);
+  });
+
+  it('keeps fallback status and targets visible and disables a stale Stage action after WebMCP staging', async () => {
+    const source = await getStudioAsset('/studio/app.js');
+    const html = await getStudioAsset('/studio');
+    const ids = [
+      'macro-list',
+      'selected-macro',
+      'message',
+      'preview-button',
+      'stage-button',
+      'status-button',
+      'approve-button',
+      'preview-panel',
+      'run-panel',
+      'studio-error',
+      'local-status',
+      'runtime-status',
+      'webmcp-status',
+    ];
+    const elements = new Map(ids.map(id => [id, new FakeElement()]));
+    const documentListeners = new Map<string, Array<(event: FakeCustomEvent) => void>>();
+    const document = {
+      getElementById(id: string) {
+        return elements.get(id);
+      },
+      createElement() {
+        return new FakeElement();
+      },
+      addEventListener(name: string, listener: (event: FakeCustomEvent) => void) {
+        const listeners = documentListeners.get(name) ?? [];
+        listeners.push(listener);
+        documentListeners.set(name, listeners);
+      },
+    };
+    const context = vm.createContext({
+      document,
+      fetch: async () => ({
+        ok: true,
+        json: async () => ({
+          runtime: {
+            available: false,
+            reason: 'disabled',
+            message: 'Native execution is disabled.',
+          },
+          macros: [
+            {
+              id: 'show_desktop_message',
+              title: 'Show desktop message',
+              effect: 'Shows one dismissible message dialog on this PC.',
+              targets: ['Windows desktop'],
+            },
+          ],
+        }),
+      }),
+    });
+
+    new vm.Script(source, { filename: 'app.js' }).runInContext(context);
+    await new Promise<void>(resolve => setImmediate(resolve));
+
+    expect(elements.get('local-status')?.textContent).toBe('Local companion: connected.');
+    expect(elements.get('runtime-status')?.textContent).toBe(
+      'Native runtime: Native execution is disabled.'
+    );
+    expect(elements.get('webmcp-status')?.textContent).toBe(
+      'WebMCP: unavailable — use the page controls.'
+    );
+    expect(elements.get('macro-list')?.children[0]?.textContent).toContain('Windows desktop');
+    expect(html).toContain('>Run on this PC</button>');
+
+    const publish = (detail: unknown) => {
+      for (const listener of documentListeners.get('ahk-studio-tool-result') ?? []) {
+        listener(new FakeCustomEvent('ahk-studio-tool-result', { detail }));
+      }
+    };
+    publish({
+      tool: 'preview_ahk_macro',
+      result: { previewId: 'preview-1', parameters: { message: 'Hello' } },
+    });
+    expect(elements.get('stage-button')?.disabled).toBe(false);
+    publish({
+      tool: 'request_ahk_macro_run',
+      result: { runId: 'run-1', state: 'pending_approval' },
+    });
+    expect(elements.get('stage-button')?.disabled).toBe(true);
   });
 });

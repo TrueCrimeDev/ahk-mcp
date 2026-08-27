@@ -6,6 +6,7 @@ import {
 } from 'node:fs/promises';
 import { resolveAutoHotkeyPath } from '../core/config.js';
 import { createStudioProcessRunner, type StudioProcessRunner } from './ahk-process.js';
+import { pinStudioScript } from './verified-script.js';
 
 export type RuntimeUnavailableReason =
   | 'disabled'
@@ -93,11 +94,23 @@ export async function initializeAhkRuntime(
     return unavailable('invalid_executable', 'AutoHotkey runtime is invalid.');
   }
 
+  let versionProbe;
+  try {
+    versionProbe = await pinStudioScript(options.versionProbePath, {
+      realpath,
+      stat,
+      readFile,
+    });
+    await versionProbe.assertIntegrity();
+  } catch {
+    return unavailable('probe_failed', 'AutoHotkey runtime could not be verified.');
+  }
+
   let probe;
   try {
     probe = await processRunner.run({
       executablePath,
-      scriptPath: options.versionProbePath,
+      scriptSource: versionProbe.source,
       arguments: [],
       timeoutMs: 5_000,
       outputLimitChars: 4_096,

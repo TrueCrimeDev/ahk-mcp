@@ -104,7 +104,7 @@ import { extractProgressToken, ProgressNotifier } from './core/progress-notifier
 import { clientRoots } from './core/client-roots.js';
 import { mountDashboard } from './dashboard.js';
 import { createStudioService } from './studio/create-studio.js';
-import { mountStudio } from './studio/studio-http.js';
+import { mountStudio, mountStudioHeaderBoundary, sendStudioError } from './studio/studio-http.js';
 import { toolAnalytics } from './core/tool-analytics.js';
 import { runWithMcpRequestContextAsync } from './core/mcp-request-context.js';
 import { resourceSubscriptions } from './core/resource-subscriptions.js';
@@ -2509,6 +2509,7 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
     const host = process.env.AHK_MCP_HTTP_HOST?.trim() || '127.0.0.1';
     const legacySseEnabled = process.env.AHK_MCP_LEGACY_SSE === '1';
     const authToken = process.env.AHK_MCP_AUTH_TOKEN?.trim();
+    const studioEnabled = this.isLoopbackHost(host);
 
     if (
       !this.isLoopbackHost(host) &&
@@ -2528,6 +2529,7 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
     const express = await import('express');
     const { rateLimit } = await import('express-rate-limit');
     const app = express.default();
+    if (studioEnabled) mountStudioHeaderBoundary(app);
     this.configureHostValidation(app, host, port);
     this.configureOriginValidation(app, port);
     app.use(
@@ -2536,6 +2538,13 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
         limit: this.getPositiveIntEnv('AHK_MCP_RATE_LIMIT_MAX', 120),
         standardHeaders: 'draft-8',
         legacyHeaders: false,
+        handler: (req, res, _next, options) => {
+          if (res.locals.studioBoundaryEntered === true) {
+            sendStudioError(res, 429, 'rate_limited', 'Too many Studio requests.');
+            return;
+          }
+          res.status(options.statusCode).send(options.message);
+        },
       })
     );
     this.mountServerCard(app);
@@ -2554,8 +2563,10 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
     // analytics and the activity log are unaffected.
     const activeSessions = new Map<string, SessionEntry>();
     mountDashboard(app, activeSessions);
-    const studioService = await createStudioService();
-    mountStudio(app, studioService);
+    if (studioEnabled) {
+      const studioService = await createStudioService();
+      mountStudio(app, studioService);
+    }
 
     const mcpHandler = createMcpHandler(() => this.createServer(), {
       legacy: 'stateless',
@@ -2629,6 +2640,17 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
         return;
       }
 
+      if (res.locals.studioBoundaryEntered === true) {
+        sendStudioError(
+          res,
+          403,
+          'loopback_required',
+          req.method === 'POST'
+            ? 'Studio changes require the local page.'
+            : 'Studio is available only on this PC.'
+        );
+        return;
+      }
       this.sendTransportError(res, 403, -32097, 'Origin not allowed', {
         phase: 'origin-validation',
         method: req.method,
@@ -2667,6 +2689,10 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
         return;
       }
 
+      if (res.locals.studioBoundaryEntered === true) {
+        sendStudioError(res, 403, 'loopback_required', 'Studio is available only on this PC.');
+        return;
+      }
       this.sendTransportError(res, 403, -32096, 'Host not allowed', {
         phase: 'host-validation',
         method: req.method,
@@ -2705,6 +2731,10 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
       }
 
       res.setHeader('WWW-Authenticate', 'Bearer realm="ahk-mcp"');
+      if (res.locals.studioBoundaryEntered === true) {
+        sendStudioError(res, 401, 'authentication_required', 'Studio authentication is required.');
+        return;
+      }
       this.sendTransportError(res, 401, -32098, 'Authentication required', {
         phase: 'authentication',
         method: req.method,

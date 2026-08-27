@@ -9,7 +9,7 @@ import type {
   NativeApprovalGateway,
   NativeApprovalResult,
 } from '../../src/studio/native-approval.js';
-import { StudioService } from '../../src/studio/studio-service.js';
+import { StudioService, type StudioExecutionCoordinator } from '../../src/studio/studio-service.js';
 import type { StudioMacroCatalog } from '../../src/studio/studio-types.js';
 
 const temporaryDirectories: string[] = [];
@@ -37,6 +37,8 @@ interface FixtureOptions {
   ids?: string[] | null;
   catalog?: StudioMacroCatalog;
   macroRoot?: string;
+  executionCoordinator?: StudioExecutionCoordinator;
+  recordLimits?: { previews: number; runs: number; tombstones: number };
 }
 
 async function createFixture(options: FixtureOptions = {}) {
@@ -86,6 +88,8 @@ async function createFixture(options: FixtureOptions = {}) {
     runtime,
     approval,
     executor,
+    ...(options.executionCoordinator ? { executionCoordinator: options.executionCoordinator } : {}),
+    ...(options.recordLimits ? { recordLimits: options.recordLimits } : {}),
     now: () => new Date(nowMs),
     ...(ids === null
       ? {}
@@ -195,6 +199,150 @@ describe('Studio preview and run state machine', () => {
       code: 'run_expired',
       statusCode: 410,
     });
+  });
+
+  it('caps live previews without early eviction and reclaims them at exactly five minutes', async () => {
+    const fixture = await createFixture({
+      ids: null,
+      recordLimits: { previews: 2, runs: 2, tombstones: 2 },
+    });
+    const first = await fixture.service.createPreview({
+      macroId: 'show_desktop_message',
+      parameters: { message: 'First' },
+    });
+    await fixture.service.createPreview({
+      macroId: 'show_desktop_message',
+      parameters: { message: 'Second' },
+    });
+
+    await expect(
+      fixture.service.createPreview({
+        macroId: 'show_desktop_message',
+        parameters: { message: 'Third' },
+      })
+    ).rejects.toMatchObject({ code: 'studio_busy', statusCode: 503 });
+
+    fixture.advance(299_999);
+    expect(() => fixture.service.requestRun({ previewId: first.previewId })).not.toThrow();
+    fixture.advance(1);
+    await expect(
+      fixture.service.createPreview({
+        macroId: 'show_desktop_message',
+        parameters: { message: 'After expiry' },
+      })
+    ).resolves.toMatchObject({ parameters: { message: 'After expiry' } });
+  });
+
+  it('enforces the preview cap across concurrent hashing requests', async () => {
+    const fixture = await createFixture({
+      ids: null,
+      recordLimits: { previews: 2, runs: 2, tombstones: 2 },
+    });
+    const results = await Promise.allSettled(
+      ['First', 'Second', 'Third'].map(message =>
+        fixture.service.createPreview({
+          macroId: 'show_desktop_message',
+          parameters: { message },
+        })
+      )
+    );
+
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(2);
+    const rejected = results.find(result => result.status === 'rejected');
+    expect(rejected).toMatchObject({
+      status: 'rejected',
+      reason: expect.objectContaining({ code: 'studio_busy', statusCode: 503 }),
+    });
+  });
+
+  it('bounds timestamped consumed-preview tombstones without permitting replay', async () => {
+    const fixture = await createFixture({
+      ids: null,
+      recordLimits: { previews: 3, runs: 3, tombstones: 1 },
+    });
+    const first = await fixture.service.createPreview({
+      macroId: 'show_desktop_message',
+      parameters: { message: 'First' },
+    });
+    fixture.service.requestRun({ previewId: first.previewId });
+    const second = await fixture.service.createPreview({
+      macroId: 'show_desktop_message',
+      parameters: { message: 'Second' },
+    });
+    fixture.service.requestRun({ previewId: second.previewId });
+
+    expect(() => fixture.service.requestRun({ previewId: first.previewId })).toThrow(
+      expect.objectContaining({ code: 'preview_not_found', statusCode: 404 })
+    );
+    expect(() => fixture.service.requestRun({ previewId: second.previewId })).toThrow(
+      expect.objectContaining({ code: 'state_conflict', statusCode: 409 })
+    );
+  });
+
+  it('preserves terminal status for the full valid window and admits a new run only after expiry', async () => {
+    const fixture = await createFixture({
+      ids: null,
+      recordLimits: { previews: 2, runs: 1, tombstones: 2 },
+    });
+    const firstPreview = await fixture.service.createPreview({
+      macroId: 'show_desktop_message',
+      parameters: { message: 'First' },
+    });
+    const firstRun = fixture.service.requestRun({ previewId: firstPreview.previewId });
+    await fixture.service.approveRun(firstRun.runId);
+    const secondPreview = await fixture.service.createPreview({
+      macroId: 'show_desktop_message',
+      parameters: { message: 'Second' },
+    });
+
+    fixture.advance(299_999);
+    expect(fixture.service.getRun(firstRun.runId).state).toBe('succeeded');
+    expect(() => fixture.service.requestRun({ previewId: secondPreview.previewId })).toThrow(
+      expect.objectContaining({ code: 'studio_busy', statusCode: 503 })
+    );
+
+    fixture.advance(1);
+    expect(() => fixture.service.getRun(firstRun.runId)).toThrow(
+      expect.objectContaining({ code: 'run_expired', statusCode: 410 })
+    );
+    const replacementPreview = await fixture.service.createPreview({
+      macroId: 'show_desktop_message',
+      parameters: { message: 'Replacement' },
+    });
+    expect(fixture.service.requestRun({ previewId: replacementPreview.previewId })).toMatchObject({
+      state: 'pending_approval',
+    });
+  });
+
+  it('never sweeps an active approval record even after its public window expires', async () => {
+    const gate = deferred<NativeApprovalResult>();
+    const fixture = await createFixture({
+      ids: null,
+      approval: { confirm: jest.fn(() => gate.promise) },
+      recordLimits: { previews: 2, runs: 1, tombstones: 2 },
+    });
+    const firstPreview = await fixture.service.createPreview({
+      macroId: 'show_desktop_message',
+      parameters: { message: 'First' },
+    });
+    const firstRun = fixture.service.requestRun({ previewId: firstPreview.previewId });
+    const approval = fixture.service.approveRun(firstRun.runId);
+    fixture.advance(300_000);
+    fixture.service.listMacros();
+    const secondPreview = await fixture.service.createPreview({
+      macroId: 'show_desktop_message',
+      parameters: { message: 'Second' },
+    });
+
+    let admissionError: unknown;
+    try {
+      fixture.service.requestRun({ previewId: secondPreview.previewId });
+    } catch (error) {
+      admissionError = error;
+    }
+    gate.resolve({ decision: 'denied', durationMs: 1 });
+    await expect(approval).rejects.toMatchObject({ code: 'run_expired', statusCode: 410 });
+    expect(admissionError).toMatchObject({ code: 'studio_busy', statusCode: 503 });
   });
 
   it('atomically consumes a preview only once', async () => {
@@ -336,6 +484,61 @@ describe('Studio preview and run state machine', () => {
     expect(approval.confirm).toHaveBeenCalledTimes(2);
   });
 
+  it('quarantines the global coordinator when process termination cannot be confirmed', async () => {
+    let locked = false;
+    let quarantined = false;
+    const executionCoordinator = {
+      tryAcquire() {
+        if (locked || quarantined) return false;
+        locked = true;
+        return true;
+      },
+      release() {
+        if (!quarantined) locked = false;
+      },
+      quarantine() {
+        quarantined = true;
+        locked = true;
+      },
+    } as StudioExecutionCoordinator;
+    const executor = {
+      execute: jest.fn<StudioMacroExecutor['execute']>().mockResolvedValueOnce({
+        status: 'failed',
+        exitCode: null,
+        durationMs: 60,
+        summary: 'Desktop message did not complete.',
+        requiresQuarantine: true,
+      } as Awaited<ReturnType<StudioMacroExecutor['execute']>> & {
+        requiresQuarantine: true;
+      }),
+    };
+    const fixture = await createFixture({
+      executor,
+      executionCoordinator,
+      ids: ['preview-1', 'run-1', 'preview-2', 'run-2'],
+    });
+    const firstPreview = await fixture.service.createPreview({
+      macroId: 'show_desktop_message',
+      parameters: { message: 'First' },
+    });
+    const firstRun = fixture.service.requestRun({ previewId: firstPreview.previewId });
+    const secondPreview = await fixture.service.createPreview({
+      macroId: 'show_desktop_message',
+      parameters: { message: 'Second' },
+    });
+    const secondRun = fixture.service.requestRun({ previewId: secondPreview.previewId });
+
+    await expect(fixture.service.approveRun(firstRun.runId)).resolves.toMatchObject({
+      state: 'failed',
+    });
+    await expect(fixture.service.approveRun(secondRun.runId)).rejects.toMatchObject({
+      code: 'execution_busy',
+      statusCode: 409,
+    });
+    expect(fixture.approval.confirm).toHaveBeenCalledTimes(1);
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+  });
+
   it('shares the global execution lock across separate service instances', async () => {
     const gate = deferred<NativeApprovalResult>();
     const approval = {
@@ -429,6 +632,36 @@ describe('Studio preview and run state machine', () => {
       statusCode: 500,
     });
     expect(fixture.executor.execute).not.toHaveBeenCalled();
+  });
+
+  it('executes the previewed catalog bytes across a check-to-launch path replacement', async () => {
+    const trustedSource = Buffer.from('#Requires AutoHotkey v2.0\r\nMsgBox(A_Args[1])\r\n');
+    let launchedSource: Buffer | undefined;
+    let executionRequest: Record<string, unknown> | undefined;
+    let scriptPath = '';
+    const executor = {
+      execute: jest.fn<StudioMacroExecutor['execute']>().mockImplementation(async request => {
+        await writeFile(scriptPath, Buffer.from('ExitApp 9'));
+        executionRequest = request as unknown as Record<string, unknown>;
+        launchedSource = Buffer.from(
+          (request as unknown as { scriptSource: Uint8Array }).scriptSource
+        );
+        return {
+          status: 'succeeded',
+          exitCode: 0,
+          durationMs: 5,
+          summary: 'Desktop message closed successfully.',
+        };
+      }),
+    };
+    const fixture = await stageRun({ executor });
+    scriptPath = fixture.scriptPath;
+
+    await expect(fixture.service.approveRun(fixture.run.runId)).resolves.toMatchObject({
+      state: 'succeeded',
+    });
+    expect(launchedSource).toEqual(trustedSource);
+    expect(executionRequest).not.toHaveProperty('scriptPath');
   });
 
   it('rejects a real junction that escapes the canonical macro root', async () => {
@@ -531,7 +764,7 @@ describe('Studio preview and run state machine', () => {
     );
     expect(publicJson).not.toContain(fixture.macroRoot);
     expect(publicJson).not.toMatch(
-      /ShowDesktopMessage\.ahk|AutoHotkey64\.exe|executablePath|scriptPath|arguments|timeoutMs|successSummary|failureSummary|stdout|stderr|stack/i
+      /ShowDesktopMessage\.ahk|AutoHotkey64\.exe|executablePath|scriptPath|scriptSource|arguments|timeoutMs|successSummary|failureSummary|stdout|stderr|stack/i
     );
   });
 
