@@ -64,16 +64,21 @@ export function createStudioProcessRunner(
         let stdout = '';
         let stderr = '';
         let settled = false;
+        let cleanedUp = false;
         let trackedPid: number | undefined;
         let timeout: NodeJS.Timeout | undefined;
 
         const durationMs = () => Date.now() - startedAt;
-        const settle = (outcome: StudioProcessOutcome) => {
+        const settleResult = (outcome: StudioProcessOutcome) => {
           if (settled) return;
           settled = true;
           if (timeout) clearTimeout(timeout);
-          if (trackedPid !== undefined) dependencies.processManager.unregisterProcess(trackedPid);
           resolve(outcome);
+        };
+        const cleanUpProcess = () => {
+          if (cleanedUp || trackedPid === undefined) return;
+          cleanedUp = true;
+          dependencies.processManager.unregisterProcess(trackedPid);
         };
 
         let child: ChildProcess;
@@ -88,7 +93,7 @@ export function createStudioProcessRunner(
             options
           );
         } catch {
-          settle({ kind: 'spawn_failed', durationMs: durationMs() });
+          settleResult({ kind: 'spawn_failed', durationMs: durationMs() });
           return;
         }
 
@@ -104,10 +109,11 @@ export function createStudioProcessRunner(
           stderr = appendBounded(stderr, chunk, outputLimit);
         });
         child.once('error', () => {
-          settle({ kind: 'spawn_failed', durationMs: durationMs() });
+          settleResult({ kind: 'spawn_failed', durationMs: durationMs() });
         });
         child.once('close', code => {
-          settle({
+          cleanUpProcess();
+          settleResult({
             kind: 'exited',
             exitCode: code ?? 1,
             durationMs: durationMs(),
@@ -121,7 +127,7 @@ export function createStudioProcessRunner(
           } catch {
             // The process may already have exited; the outcome remains a timeout.
           }
-          settle({ kind: 'timed_out', durationMs: durationMs() });
+          settleResult({ kind: 'timed_out', durationMs: durationMs() });
         }, request.timeoutMs);
       });
     },

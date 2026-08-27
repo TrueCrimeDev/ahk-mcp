@@ -64,6 +64,14 @@ describe('Studio AHK adapters', () => {
       outputLimitChars: 4_096,
       windowsHide: false,
     });
+    expect(runner.run).toHaveBeenNthCalledWith(2, {
+      executablePath: 'C:\\AutoHotkey64.exe',
+      scriptPath: 'C:\\fixed\\Macro.ahk',
+      arguments: ['Hello'],
+      timeoutMs: 30_000,
+      outputLimitChars: 4_096,
+      windowsHide: true,
+    });
   });
 
   it('maps failed integrity checks to a path-free macro failure without spawning', async () => {
@@ -145,5 +153,103 @@ describe('Studio AHK adapters', () => {
     );
     expect(tracker.registerProcess).toHaveBeenCalledWith(42, 'C:\\fixed\\Macro.ahk');
     expect(tracker.unregisterProcess).toHaveBeenCalledWith(42);
+  });
+
+  it('settles a timeout once but retains the PID until the process closes', async () => {
+    jest.useFakeTimers();
+    try {
+      const closeHandlers: Array<(code: number | null) => void> = [];
+      const child = {
+        pid: 43,
+        stdout: null,
+        stderr: null,
+        once: (event: string, handler: (value?: number | Error | null) => void) => {
+          if (event === 'close') closeHandlers.push(handler as (code: number | null) => void);
+        },
+        kill: jest.fn(() => {
+          throw new Error('kill failed');
+        }),
+      };
+      const tracker = { registerProcess: jest.fn(), unregisterProcess: jest.fn() };
+      const runner = createStudioProcessRunner({
+        spawn: jest.fn(() => child),
+        processManager: tracker,
+      } as unknown as StudioProcessRunnerDependencies);
+      let resolutions = 0;
+      const outcome = runner
+        .run({
+          executablePath: 'C:\\AutoHotkey64.exe',
+          scriptPath: 'C:\\fixed\\Macro.ahk',
+          arguments: [],
+          timeoutMs: 10,
+          outputLimitChars: 4_096,
+          windowsHide: true,
+        })
+        .then(value => {
+          resolutions += 1;
+          return value;
+        });
+
+      await jest.advanceTimersByTimeAsync(10);
+      await expect(outcome).resolves.toEqual({ kind: 'timed_out', durationMs: 10 });
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      expect(tracker.unregisterProcess).not.toHaveBeenCalled();
+
+      closeHandlers[0](null);
+      closeHandlers[0](null);
+      expect(resolutions).toBe(1);
+      expect(tracker.unregisterProcess).toHaveBeenCalledTimes(1);
+      expect(tracker.unregisterProcess).toHaveBeenCalledWith(43);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('settles an error once and unregisters exactly once after a close race', async () => {
+    const closeHandlers: Array<(code: number | null) => void> = [];
+    const errorHandlers: Array<(error: Error) => void> = [];
+    const child = {
+      pid: 44,
+      stdout: null,
+      stderr: null,
+      once: (event: string, handler: (value?: number | Error | null) => void) => {
+        if (event === 'close') closeHandlers.push(handler as (code: number | null) => void);
+        if (event === 'error') errorHandlers.push(handler as (error: Error) => void);
+      },
+      kill: jest.fn(),
+    };
+    const tracker = { registerProcess: jest.fn(), unregisterProcess: jest.fn() };
+    const runner = createStudioProcessRunner({
+      spawn: jest.fn(() => child),
+      processManager: tracker,
+    } as unknown as StudioProcessRunnerDependencies);
+    let resolutions = 0;
+    const outcome = runner
+      .run({
+        executablePath: 'C:\\AutoHotkey64.exe',
+        scriptPath: 'C:\\fixed\\Macro.ahk',
+        arguments: [],
+        timeoutMs: 30_000,
+        outputLimitChars: 4_096,
+        windowsHide: true,
+      })
+      .then(value => {
+        resolutions += 1;
+        return value;
+      });
+
+    errorHandlers[0](new Error('spawn details'));
+    await expect(outcome).resolves.toEqual({
+      kind: 'spawn_failed',
+      durationMs: expect.any(Number),
+    });
+    expect(tracker.unregisterProcess).not.toHaveBeenCalled();
+
+    closeHandlers[0](1);
+    errorHandlers[0](new Error('duplicate'));
+    closeHandlers[0](1);
+    expect(resolutions).toBe(1);
+    expect(tracker.unregisterProcess).toHaveBeenCalledTimes(1);
+    expect(tracker.unregisterProcess).toHaveBeenCalledWith(44);
   });
 });

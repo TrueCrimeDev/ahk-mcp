@@ -86,6 +86,13 @@ export async function initializeAhkRuntime(
     return unavailable('invalid_executable', 'AutoHotkey runtime is invalid.');
   }
 
+  let initialHash: string;
+  try {
+    initialHash = sha256(await readFile(executablePath));
+  } catch {
+    return unavailable('invalid_executable', 'AutoHotkey runtime is invalid.');
+  }
+
   let probe;
   try {
     probe = await processRunner.run({
@@ -99,6 +106,17 @@ export async function initializeAhkRuntime(
   } catch {
     return unavailable('probe_failed', 'AutoHotkey runtime could not be verified.');
   }
+
+  let verifiedHash: string;
+  try {
+    verifiedHash = sha256(await readFile(executablePath));
+  } catch {
+    return unavailable('invalid_executable', 'AutoHotkey runtime is invalid.');
+  }
+  if (initialHash !== verifiedHash) {
+    return unavailable('invalid_executable', 'AutoHotkey runtime is invalid.');
+  }
+
   if (probe.kind !== 'exited' || probe.exitCode !== 0) {
     return unavailable('probe_failed', 'AutoHotkey runtime could not be verified.');
   }
@@ -108,17 +126,10 @@ export async function initializeAhkRuntime(
     return unavailable('unsupported_version', 'AutoHotkey v2 or later is required.');
   }
 
-  let expectedHash: string;
-  try {
-    expectedHash = sha256(await readFile(executablePath));
-  } catch {
-    return unavailable('invalid_executable', 'AutoHotkey runtime is invalid.');
-  }
-
   const runtime: PinnedAhkRuntime = {
     executablePath,
     version,
-    sha256: expectedHash,
+    sha256: verifiedHash,
     async assertIntegrity(): Promise<void> {
       let currentHash: string;
       try {
@@ -126,7 +137,7 @@ export async function initializeAhkRuntime(
       } catch {
         throw new Error('AutoHotkey runtime integrity check failed.');
       }
-      if (currentHash !== expectedHash) {
+      if (currentHash !== verifiedHash) {
         throw new Error('AutoHotkey runtime integrity check failed.');
       }
     },
