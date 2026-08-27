@@ -103,6 +103,8 @@ import type { ToolResponse } from './core/server-interface.js';
 import { extractProgressToken, ProgressNotifier } from './core/progress-notifier.js';
 import { clientRoots } from './core/client-roots.js';
 import { mountDashboard } from './dashboard.js';
+import { createStudioService } from './studio/create-studio.js';
+import { mountStudio } from './studio/studio-http.js';
 import { toolAnalytics } from './core/tool-analytics.js';
 import { runWithMcpRequestContextAsync } from './core/mcp-request-context.js';
 import { resourceSubscriptions } from './core/resource-subscriptions.js';
@@ -2552,6 +2554,8 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
     // analytics and the activity log are unaffected.
     const activeSessions = new Map<string, SessionEntry>();
     mountDashboard(app, activeSessions);
+    const studioService = await createStudioService();
+    mountStudio(app, studioService);
 
     const mcpHandler = createMcpHandler(() => this.createServer(), {
       legacy: 'stateless',
