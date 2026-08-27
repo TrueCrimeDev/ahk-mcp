@@ -38,26 +38,58 @@ async function stopChild(child: ChildProcess): Promise<void> {
   }
 }
 
-async function waitForStudio(baseUrl: string, child: ChildProcess): Promise<void> {
-  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
+async function waitForStudio(
+  baseUrl: string,
+  child: Pick<ChildProcess, 'exitCode' | 'signalCode'>,
+  startupTimeoutMs = STARTUP_TIMEOUT_MS
+): Promise<void> {
+  const deadline = Date.now() + startupTimeoutMs;
   let lastError = 'No response received.';
   while (Date.now() < deadline) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
     if (child.exitCode !== null || child.signalCode !== null) {
       throw new Error(`Server exited before Studio became ready (${lastError}).`);
     }
     try {
-      const response = await fetch(baseUrl + '/studio');
+      const response = await fetch(baseUrl + '/studio', {
+        signal: AbortSignal.timeout(remainingMs),
+      });
       await response.arrayBuffer();
       return;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
-    await new Promise(resolve => setTimeout(resolve, 100));
+    const retryDelayMs = Math.min(100, deadline - Date.now());
+    if (retryDelayMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    }
   }
-  throw new Error(`Studio did not become ready within ${STARTUP_TIMEOUT_MS}ms (${lastError}).`);
+  throw new Error(`Studio did not become ready within ${startupTimeoutMs}ms (${lastError}).`);
 }
 
 describe('built server Studio mount', () => {
+  it('passes the remaining startup deadline as a positive abort timeout to each readiness request', async () => {
+    const originalFetch = global.fetch;
+    const child = { exitCode: null, signalCode: null };
+    const timeoutSpy = jest
+      .spyOn(AbortSignal, 'timeout')
+      .mockReturnValue(new AbortController().signal);
+    global.fetch = ((_input: string | URL | Request, init?: RequestInit) =>
+      Promise.resolve(new Response(null, { status: 200 }))) as typeof fetch;
+
+    try {
+      await waitForStudio('http://127.0.0.1:1', child, 20);
+      expect(timeoutSpy).toHaveBeenCalledTimes(1);
+      const [timeoutMs] = timeoutSpy.mock.calls[0];
+      expect(timeoutMs).toBeGreaterThan(0);
+      expect(timeoutMs).toBeLessThanOrEqual(20);
+    } finally {
+      global.fetch = originalFetch;
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it('serves Studio and preserves the dashboard when execution is disabled', async () => {
     const port = await reserveLoopbackPort();
     const baseUrl = `http://127.0.0.1:${port}`;
