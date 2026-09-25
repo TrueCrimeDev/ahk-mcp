@@ -16,6 +16,10 @@ type SessionEntry = {
 };
 
 export function mountDashboard(app: Express, activeSessions: Map<string, SessionEntry>): void {
+  app.get('/', (_req: Request, res: Response) => {
+    res.redirect('/dashboard');
+  });
+
   // JSON API endpoints
   app.get('/dashboard/api/sessions', (_req: Request, res: Response) => {
     const sessions = Array.from(activeSessions.entries()).map(([id, s]) => ({
@@ -273,7 +277,7 @@ async function refresh() {
         const icon = a.success ? '<span class="badge badge-ok">OK</span>' : '<span class="badge badge-err">ERR</span>';
         const hasResult = a.result || a.error;
         const resultText = a.error ? 'Error: '+esc(a.error) : esc(a.result||'No output captured');
-        return '<div class="activity-item" onclick="this.classList.toggle(\'expanded\')">' +
+        return '<div class="activity-item" onclick="this.classList.toggle(\\'expanded\\')">' +
           '<div class="activity-row">' +
           (hasResult ? '<span class="expand-icon">&#9654;</span>' : '<span class="expand-icon"></span>') +
           '<span class="time">'+timeOnly(a.time)+'</span>' +

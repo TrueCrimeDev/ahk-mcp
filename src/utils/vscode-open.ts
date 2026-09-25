@@ -65,6 +65,16 @@ function looksLikePath(command: string): boolean {
   return command.includes('\\') || command.includes('/');
 }
 
+function vscodeChildEnvironment(): NodeJS.ProcessEnv {
+  const environment = { ...process.env };
+  // The MCP worker can use Code.exe as Node, but editor commands must start in
+  // editor mode. code.cmd sets its own local Node mode for the CLI bootstrap.
+  for (const key of Object.keys(environment)) {
+    if (key.toUpperCase() === 'ELECTRON_RUN_AS_NODE') delete environment[key];
+  }
+  return environment;
+}
+
 function getCommandCandidates(): string[] {
   const envOverride = process.env.AHK_MCP_VSCODE_PATH;
   const isWindows = process.platform === 'win32';
@@ -102,6 +112,7 @@ async function probeVSCodeCommand(command: string): Promise<CommandProbeResult> 
 
   return new Promise(resolve => {
     const child = spawn(command, ['--version'], {
+      env: vscodeChildEnvironment(),
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -209,6 +220,7 @@ function runVSCodeCommand(
     const startedAt = Date.now();
     const child = spawn(command, args, {
       cwd,
+      env: vscodeChildEnvironment(),
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });

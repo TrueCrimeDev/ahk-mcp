@@ -60,11 +60,6 @@ const NOISY_PROJECT_DIRECTORIES = new Set([
 
 const MIN_HINT_TOKEN_LENGTH = 3;
 const PROJECT_MATCH_LIMIT = 6;
-const PREFERRED_LOCAL_AHK_EXECUTABLES = [
-  'C:\\Users\\uphol\\Documents\\Design\\Coding\\AutoHotkey\\bin\\AutoHotkey64.exe',
-  'C:\\Users\\uphol\\Documents\\Design\\Coding\\AutoHotkey\\bin\\AutoHotkey32.exe',
-  'C:\\Users\\uphol\\Documents\\Design\\Coding\\AutoHotkey\\bin\\AutoHotkey_L.exe',
-];
 const PROGRAM_FILES_AHK_EXECUTABLES = [
   'C:\\Program Files\\AutoHotkey\\v2\\AutoHotkey64.exe',
   'C:\\Program Files\\AutoHotkey\\v2\\AutoHotkey.exe',
@@ -233,10 +228,6 @@ export function getAutoHotkeyExecutableCandidates(
 
   pushLocalAhkBinCandidates(candidates, cwd);
   pushLocalAhkBinCandidates(candidates, path.dirname(cwd));
-
-  for (const executablePath of PREFERRED_LOCAL_AHK_EXECUTABLES) {
-    pushUniqueFile(candidates, executablePath);
-  }
 
   for (const executablePath of PROGRAM_FILES_AHK_EXECUTABLES) {
     pushUniqueFile(candidates, executablePath);

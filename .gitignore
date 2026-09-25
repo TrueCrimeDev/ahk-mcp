@@ -8,6 +8,8 @@ pnpm-debug.log*
 # Build outputs
 dist/
 build/
+/artifacts/mcp-runtime/
+/artifacts/.mcp-runtime-*/
 *.tsbuildinfo
 
 # Logs
