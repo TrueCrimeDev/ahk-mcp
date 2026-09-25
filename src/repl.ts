@@ -1,16 +1,29 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { resolveAutoHotkeyPath } from './core/config.js';
 import { pathConverter, PathFormat } from './utils/path-converter.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 /**
- * The AHK REPL host script, shipped in the repo's `scripts/` dir. Resolved
- * relative to the compiled `dist/` output (one level up), matching how the
- * tool registry resolves other shipped assets.
+ * The AHK REPL host script, shipped in the repo's `scripts/` dir. Found by walking
+ * up from this module rather than at a fixed offset: the compiled `dist/repl.js`
+ * sits one level below the root, but the portable runtime bundles this module
+ * into `dist/core/server.mjs`, two levels below.
  */
-const HOST_SCRIPT = join(__dirname, '..', 'scripts', 'repl-host.ahk');
+function findHostScript(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 4; i++) {
+    const candidate = join(dir, 'scripts', 'repl-host.ahk');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return join(process.cwd(), 'scripts', 'repl-host.ahk');
+}
+
+const HOST_SCRIPT = findHostScript();
 
 const FIELD_SEP = '\x1F'; // separates <seq> from <payload> on the wire
 const NL_ENCODE = '\x1A'; // stands in for a literal newline inside a payload
