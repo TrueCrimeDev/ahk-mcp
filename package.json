@@ -53,12 +53,9 @@
     "test:uia:lib": "\"$AHK_PATH\" /ErrorStdOut Tests/uia/lib-paths.ahk"
   },
   "dependencies": {
-    "@modelcontextprotocol/node": "^2.0.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/node": "^2.1.0",
+    "@modelcontextprotocol/server": "^2.1.0",
     "antlr4ng": "^3.0.16",
-    "cors": "^2.8.5",
-    "cross-spawn": "7.0.6",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
     "flexsearch": "^0.7.43",
@@ -68,7 +65,6 @@
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
-    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/jest": "^29.5.11",
     "@types/node": "^20.10.5",

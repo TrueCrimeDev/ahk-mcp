@@ -40,7 +40,11 @@ services:
     environment:
       - NODE_ENV=production
       - AHK_MCP_LOG_LEVEL=${AHK_MCP_LOG_LEVEL:-info}
+      - AHK_MCP_TRANSPORT=http
       - PORT=3000
+      # Listen on all interfaces inside the container; remote binding requires a token.
+      - AHK_MCP_HTTP_HOST=0.0.0.0
+      - AHK_MCP_AUTH_TOKEN=${AHK_MCP_AUTH_TOKEN:?set AHK_MCP_AUTH_TOKEN in .env}
     volumes:
       - ahk-mcp-logs:/app/logs
     restart: unless-stopped
@@ -76,7 +80,10 @@ services:
     environment:
       - NODE_ENV=development
       - AHK_MCP_LOG_LEVEL=debug
+      - AHK_MCP_TRANSPORT=http
       - PORT=3000
+      - AHK_MCP_HTTP_HOST=0.0.0.0
+      - AHK_MCP_AUTH_TOKEN=${AHK_MCP_AUTH_TOKEN:?set AHK_MCP_AUTH_TOKEN in .env}
     volumes:
       - .:/app
       - /app/node_modules  # Preserve node_modules in container

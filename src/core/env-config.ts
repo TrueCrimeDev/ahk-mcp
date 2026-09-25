@@ -50,11 +50,17 @@ class EnvironmentConfig {
   }
 
   /**
-   * Determine if SSE (Server-Sent Events) mode should be used
-   * Used when PORT env var is set or --sse flag is provided
+   * Determine if the HTTP transport should be used instead of stdio.
+   * Requires an explicit opt-in (--http, the legacy --sse flag, or
+   * AHK_MCP_TRANSPORT=http): a stray PORT in the environment must not silently
+   * turn a stdio launch into an HTTP server the client never connects to.
    */
   useSSEMode(): boolean {
-    return process.argv.includes('--sse') || !!process.env.PORT;
+    return (
+      process.argv.includes('--http') ||
+      process.argv.includes('--sse') ||
+      process.env.AHK_MCP_TRANSPORT?.trim().toLowerCase() === 'http'
+    );
   }
 
   /**

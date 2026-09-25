@@ -113,7 +113,7 @@ function validateDependencies() {
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
   
   const criticalDeps = [
-    '@modelcontextprotocol/sdk',
+    '@modelcontextprotocol/server',
     'zod',
     'prom-client'
   ];

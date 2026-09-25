@@ -91,6 +91,7 @@ import { AhkThqbyDocumentSymbolsTool } from './tools/ahk-thqby-document-symbols.
 import { AhkCloudValidateTool } from './tools/ahk-cloud-validate.js';
 import { AhkDebugDBGpTool } from './tools/ahk-debug-dbgp.js';
 import { AhkEvalTool, AhkReplResetTool, replSession } from './tools/ahk-eval.js';
+import { processManager } from './core/process-manager.js';
 import { autoDetect, getActiveFilePath } from './core/active-file.js';
 import { toolSettings } from './core/tool-settings.js';
 import { configManager } from './core/path-converter-config.js';
@@ -2485,7 +2486,7 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
         }
       }
 
-      // Check if we should use SSE transport for ChatGPT (via --sse flag or PORT env var)
+      // HTTP transport only on explicit opt-in (--http/--sse or AHK_MCP_TRANSPORT=http)
       const useSSE = envConfig.useSSEMode();
       let shutdownHook: (() => Promise<void>) | undefined;
 
@@ -2511,14 +2512,20 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
         });
       }
 
-      // Handle process termination gracefully
+      // One shutdown path for signals and, on stdio, for the client closing stdin: the
+      // transport closes itself on EOF, but child processes, timers and listeners would
+      // otherwise keep the process alive (stdio servers SHOULD exit when stdin closes).
       process.once('SIGINT', () => {
-        void this.handleShutdownSignal('SIGINT', shutdownHook);
+        void this.shutdown('SIGINT', shutdownHook);
       });
-
       process.once('SIGTERM', () => {
-        void this.handleShutdownSignal('SIGTERM', shutdownHook);
+        void this.shutdown('SIGTERM', shutdownHook);
       });
+      if (!useSSE) {
+        process.stdin.once('end', () => {
+          void this.shutdown('stdin closed', shutdownHook);
+        });
+      }
     } catch (error) {
       logger.error('Failed to start AutoHotkey MCP Server:', error);
       process.exit(1);
@@ -2570,7 +2577,8 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
     );
     this.mountServerCard(app);
     this.configureHttpAuthentication(app, authToken);
-    app.use(express.default.json({ limit: '10mb' }));
+    // Matches the SDK's own 4 MiB default, which it skips when handed a pre-parsed body.
+    app.use(express.default.json({ limit: '4mb' }));
     app.use(express.default.urlencoded({ extended: true }));
     this.configureRoutingHeaderValidation(app);
 
@@ -2927,11 +2935,12 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
     });
   }
 
-  private async handleShutdownSignal(
-    signal: 'SIGINT' | 'SIGTERM',
-    shutdownHook?: () => Promise<void>
-  ): Promise<void> {
-    logger.info(`Received ${signal}, shutting down gracefully...`);
+  private shuttingDown = false;
+
+  private async shutdown(reason: string, shutdownHook?: () => Promise<void>): Promise<void> {
+    if (this.shuttingDown) return;
+    this.shuttingDown = true;
+    logger.info(`Shutting down (${reason})...`);
     this.disposeServerState(this.server);
 
     if (this.dapServer) {
@@ -2948,6 +2957,12 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
       replSession.stop();
     } catch (error) {
       logger.error('Failed to stop REPL session:', error);
+    }
+
+    try {
+      await processManager.performCleanup();
+    } catch (error) {
+      logger.error('Process cleanup failed:', error);
     }
 
     if (shutdownHook) {

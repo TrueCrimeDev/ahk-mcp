@@ -180,15 +180,8 @@ export class ProcessManager {
    * Setup global process signal handlers
    */
   private setupGlobalHandlers(): void {
-    const handleShutdown = async (signal: string) => {
-      logger.info(`Received ${signal}, initiating shutdown`);
-      await this.performCleanup();
-      process.exit(0);
-    };
-
-    // Handle terminate signals
-    process.on('SIGINT', () => handleShutdown('SIGINT'));
-    process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+    // SIGINT/SIGTERM and stdin EOF are handled by the server's single shutdown path,
+    // which calls performCleanup(); registering them here too raced its process.exit.
 
     // Handle uncaught exceptions
     process.on('uncaughtException', async err => {
