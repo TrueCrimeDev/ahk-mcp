@@ -21,8 +21,7 @@ export const AhkPromptsArgsSchema = z.object({});
 
 export const ahkPromptsToolDefinition = {
   name: 'AHK_Prompts',
-  description: `AHK Prompts
-Returns a set of built-in AHK v2 prompt templates for code generation and learning.`,
+  description: `Returns a set of built-in AHK v2 prompt templates for code generation and learning.`,
   inputSchema: {
     type: 'object',
     properties: {},

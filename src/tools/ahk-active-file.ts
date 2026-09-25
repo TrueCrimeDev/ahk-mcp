@@ -17,8 +17,7 @@ export const AhkActiveFileArgsSchema = z.object({
 
 export const ahkActiveFileToolDefinition = {
   name: 'AHK_Active_File',
-  description: `Ahk active file
-Get or set the active AHK file path used as a default when invoking tools.`,
+  description: `Get or set the active AHK file path used as a default when invoking tools.`,
   inputSchema: {
     type: 'object',
     properties: {

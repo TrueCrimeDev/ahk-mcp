@@ -100,7 +100,14 @@ import { pathInterceptor } from './core/path-interceptor.js';
 import { observabilityServer } from './core/observability-server.js';
 import './core/opentelemetry.js'; // Initialize OpenTelemetry (if enabled)
 import { tracer } from './core/tracing.js';
-import { getStandardToolDefinitions, toolSupportsTasks } from './core/tool-metadata.js';
+import {
+  getStandardToolDefinitions,
+  getToolMetadataByName,
+  toolSupportsTasks,
+} from './core/tool-metadata.js';
+
+/** Arguments that name a target file; see the active-file detection in tools/call. */
+const FILE_PATH_ARGUMENT_KEYS = new Set(['filePath', 'file', 'path', 'scriptPath', 'targetFile']);
 import type { ToolResponse } from './core/server-interface.js';
 import { extractProgressToken, progressNotifier } from './core/progress-notifier.js';
 import { clientRoots } from './core/client-roots.js';
@@ -108,7 +115,10 @@ import { mountDashboard } from './dashboard.js';
 import { createStudioService } from './studio/create-studio.js';
 import { mountStudio, mountStudioHeaderBoundary, sendStudioError } from './studio/studio-http.js';
 import { toolAnalytics } from './core/tool-analytics.js';
-import { runWithMcpRequestContextAsync } from './core/mcp-request-context.js';
+import {
+  getCurrentRootDirectories,
+  runWithMcpRequestContextAsync,
+} from './core/mcp-request-context.js';
 import { resourceSubscriptions } from './core/resource-subscriptions.js';
 import {
   ANALYTICS_APP_URI,
@@ -153,7 +163,13 @@ export class AutoHotkeyMcpServer {
   /** Handle for the dual-era stdio listener (`serveStdio`); undefined in HTTP mode. */
   private stdioHandle?: ReturnType<typeof serveStdio>;
   private toolRegistry: ToolRegistry;
-  private taskManagers = new WeakMap<Server, TaskManager>();
+  /**
+   * One process-wide task store. Over HTTP the SDK builds a fresh Server per request, so a
+   * per-Server store lost every task between the tools/call that queued it and the
+   * tasks/get that polls it. All HTTP clients share one bearer token (one principal), and
+   * stdio serves a single client, so there is no cross-tenant boundary to preserve.
+   */
+  private readonly taskManager = new TaskManager();
   private resourcePollTimers = new WeakMap<Server, Map<string, NodeJS.Timeout>>();
   private connectedServers = new Set<Server>();
   public ahkDiagnosticsToolInstance: AhkDiagnosticsTool;
@@ -320,7 +336,13 @@ export class AutoHotkeyMcpServer {
     );
 
     this.connectedServers.add(server);
-    this.taskManagers.set(server, new TaskManager());
+    // The SDK closes per-request servers (HTTP) and chains onclose, so this releases
+    // their state instead of accumulating one entry per request until shutdown.
+    const previousOnClose = server.onclose;
+    server.onclose = () => {
+      previousOnClose?.();
+      this.disposeServerState(server);
+    };
 
     this.setupToolHandlers(server);
     this.setupTaskHandlers(server);
@@ -539,7 +561,6 @@ export class AutoHotkeyMcpServer {
     }
 
     clientRoots.clear(server);
-    this.taskManagers.delete(server);
     this.connectedServers.delete(server);
   }
 
@@ -548,6 +569,11 @@ export class AutoHotkeyMcpServer {
       ttlMs: this.getPositiveIntEnv('AHK_MCP_DISCOVERY_TTL_MS', 30_000),
       cacheScope: 'private',
     };
+  }
+
+  private isListedTool(name: string): boolean {
+    if (getToolMetadataByName(name)) return true;
+    return envConfig.useSSEMode() && (name === 'search' || name === 'fetch');
   }
 
   private getStandardToolsForClient(server: Server) {
@@ -694,6 +720,13 @@ export class AutoHotkeyMcpServer {
       const startTime = Date.now();
       const toolTimeoutMs = envConfig.getToolTimeoutMs();
       const progressToken = extractProgressToken(params);
+
+      // Only tools the client can see are callable. An unknown name is a protocol error
+      // (-32602), not a tool result; hidden legacy handlers stay unreachable.
+      if (!this.isListedTool(name)) {
+        throw new ProtocolError(INVALID_PARAMS, `Unknown tool: ${name}`);
+      }
+
       const previousToolNames =
         name === 'AHK_Settings'
           ? getStandardToolDefinitions()
@@ -713,11 +746,12 @@ export class AutoHotkeyMcpServer {
       const unifiedLog = getUnifiedLogger();
       unifiedLog.toolStart(callId, name, (args as Record<string, unknown>) || {});
 
-      // AUTO-DETECT FILE PATHS IN ANY TOOL INPUT (if enabled)
-      // Check all string arguments for potential file paths
+      // A tool pointed at a file makes it the active file. Only path-typed arguments count:
+      // scanning free text (a doc query, code, a note) let any mentioned path silently
+      // retarget later edits that fall back to the active file.
       if (toolSettings.isFileDetectionAllowed() && args && typeof args === 'object') {
-        for (const value of Object.values(args)) {
-          if (typeof value === 'string') {
+        for (const [key, value] of Object.entries(args)) {
+          if (typeof value === 'string' && FILE_PATH_ARGUMENT_KEYS.has(key)) {
             autoDetect(value);
           }
         }
@@ -982,12 +1016,8 @@ export class AutoHotkeyMcpServer {
     );
   }
 
-  private getTaskManager(server: Server): TaskManager {
-    const manager = this.taskManagers.get(server);
-    if (!manager) {
-      throw new Error('Task manager is unavailable for this MCP session');
-    }
-    return manager;
+  private getTaskManager(_server: Server): TaskManager {
+    return this.taskManager;
   }
 
   private async executeToolWithTimeout(
@@ -1000,27 +1030,40 @@ export class AutoHotkeyMcpServer {
       throw signal.reason instanceof Error ? signal.reason : new Error('Tool request cancelled');
     }
 
+    // One controller per call, aborted on timeout or client cancellation. Tools read it
+    // from the request context and pass it to spawn(), so the work actually stops instead
+    // of running on (with its child process) after the caller has given up.
+    const controller = new AbortController();
     let timeoutId: NodeJS.Timeout | undefined;
     let abortHandler: (() => void) | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       if (timeoutMs > 0) {
         timeoutId = setTimeout(() => {
-          reject(new Error(`Tool '${toolName}' timed out after ${timeoutMs}ms`));
+          const error = new Error(`Tool '${toolName}' timed out after ${timeoutMs}ms`);
+          controller.abort(error);
+          reject(error);
         }, timeoutMs);
       }
 
       if (signal) {
         abortHandler = () => {
-          reject(
-            signal.reason instanceof Error ? signal.reason : new Error('Tool request cancelled')
-          );
+          const error =
+            signal.reason instanceof Error ? signal.reason : new Error('Tool request cancelled');
+          controller.abort(error);
+          reject(error);
         };
         signal.addEventListener('abort', abortHandler, { once: true });
       }
     });
 
     try {
-      return await Promise.race([this.toolRegistry.executeTool(toolName, args), timeoutPromise]);
+      return await Promise.race([
+        runWithMcpRequestContextAsync(
+          { rootDirectories: getCurrentRootDirectories(), abortSignal: controller.signal },
+          () => this.toolRegistry.executeTool(toolName, args)
+        ),
+        timeoutPromise,
+      ]);
     } finally {
       if (timeoutId) {
         clearTimeout(timeoutId);
@@ -2618,6 +2661,26 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
       );
     }
 
+    // Last middleware: body-parser failures (e.g. 413 over the size limit) and anything
+    // thrown in a route would otherwise get Express's default HTML page with a stack trace.
+    app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
+      if (res.headersSent) {
+        next(error);
+        return;
+      }
+      const status =
+        typeof (error as { status?: unknown })?.status === 'number'
+          ? (error as { status: number }).status
+          : 500;
+      if (status >= 500) logger.error('HTTP request failed:', error);
+      this.sendTransportError(res, status, status === 413 ? -32600 : -32603, 'Request failed', {
+        phase: 'http',
+        method: req.method,
+        path: req.path,
+        status,
+      });
+    });
+
     const httpServer = await new Promise<ReturnType<Express['listen']>>((resolve, reject) => {
       const serverInstance = app.listen(port, host, () => resolve(serverInstance));
       serverInstance.once('error', reject);
@@ -2685,7 +2748,6 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
         method: req.method,
         path: req.path,
         origin: requestOrigin,
-        allowedOrigins,
       });
     });
   }
@@ -2727,7 +2789,6 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
         method: req.method,
         path: req.path,
         host: requestHost || null,
-        allowedHosts: [...allowedHosts],
       });
     });
   }
@@ -2782,7 +2843,7 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
 
       const body = req.body as {
         method?: unknown;
-        params?: { name?: unknown; uri?: unknown };
+        params?: { name?: unknown; uri?: unknown; taskId?: unknown };
       };
       const bodyMethod = typeof body.method === 'string' ? body.method : undefined;
       const methodHeader = this.getHeaderValue(req.headers['mcp-method']);
@@ -2811,12 +2872,16 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
         return;
       }
 
+      // Mcp-Name mirrors the request's target: the resource URI, the tool/prompt name, or
+      // (tasks extension, enforced by the SDK since 2.1) the task id.
       const bodyName =
         bodyMethod === 'resources/read'
           ? body.params?.uri
           : bodyMethod === 'tools/call' || bodyMethod === 'prompts/get'
             ? body.params?.name
-            : undefined;
+            : bodyMethod?.startsWith('tasks/') && bodyMethod !== 'tasks/list'
+              ? body.params?.taskId
+              : undefined;
       const expectedName = typeof bodyName === 'string' ? bodyName : undefined;
       if (requireHeaders && expectedName !== undefined && !nameHeader) {
         this.sendTransportError(res, 400, -32001, 'Header mismatch: Mcp-Name is required', {

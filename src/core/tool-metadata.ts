@@ -45,19 +45,8 @@ import {
   uiaHighlightToolDefinition,
 } from '../tools/uia-tools.js';
 
-export type ToolCategory =
-  | 'analysis'
-  | 'debug'
-  | 'docs'
-  | 'discovery'
-  | 'execution'
-  | 'file'
-  | 'library'
-  | 'lsp'
-  | 'observability'
-  | 'system'
-  | 'uia'
-  | 'workflow';
+export type { ToolCategory } from './tool-categories.js';
+import type { ToolCategory } from './tool-categories.js';
 
 export interface ToolMetadataEntry {
   definition: Tool;
@@ -99,6 +88,12 @@ const MUTATING_TOOLS = new Set([
   'AHK_Debug_DBGp',
   'AHK_Eval',
   'AHK_Repl_Reset',
+  // Runs the script with AutoHotkey to validate it (writes a temp copy first).
+  'AHK_Cloud_Validate',
+  // autoFix rewrites the linted file.
+  'AHK_Lint',
+  // Its purpose is to set (and persist) the active file other tools default to.
+  'AHK_File_Detect',
 ]);
 
 const DESTRUCTIVE_TOOLS = new Set([
@@ -107,7 +102,6 @@ const DESTRUCTIVE_TOOLS = new Set([
   'AHK_File_Edit',
   'AHK_File_Edit_Small',
   'AHK_Smart_Orchestrator',
-  'AHK_Analytics',
 ]);
 
 const OPEN_WORLD_TOOLS = new Set([
@@ -119,6 +113,7 @@ const OPEN_WORLD_TOOLS = new Set([
   'AHK_Cloud_Validate',
   'AHK_Debug_DBGp',
   'AHK_Eval',
+  'AHK_Workflow_Analyze_Fix_Run',
 ]);
 
 /**

@@ -27,8 +27,7 @@ export const AhkAlphaArgsSchema = z.object({
 
 export const ahkAlphaToolDefinition = {
   name: 'AHK_Alpha',
-  description: `Ahk alpha
-Create and manage alpha versions of scripts for iterative development`,
+  description: `Create and manage alpha versions of scripts for iterative development`,
   inputSchema: {
     type: 'object',
     properties: {

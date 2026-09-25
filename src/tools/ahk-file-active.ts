@@ -32,8 +32,7 @@ const AhkFileActiveOutputSchema: Record<string, unknown> = {
 
 export const ahkFileToolDefinition = {
   name: 'AHK_File_Active',
-  description: `Ahk file
-DETECT AND SET ACTIVE FILE FOR EDITING - Use this immediately when user mentions any .ahk file path. This enables all other editing tools to work on the specified file. Essential first step before any file modifications.`,
+  description: `DETECT AND SET ACTIVE FILE FOR EDITING - Use this immediately when user mentions any .ahk file path. This enables all other editing tools to work on the specified file. Essential first step before any file modifications.`,
   inputSchema: {
     type: 'object',
     properties: {

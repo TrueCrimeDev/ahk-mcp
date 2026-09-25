@@ -21,8 +21,7 @@ export const AhkSamplingEnhancerArgsSchema = z.object({
 
 export const ahkSamplingEnhancerToolDefinition = {
   name: 'AHK_Sampling_Enhancer',
-  description: `Ahk sampling enhancer
-Automatically enhances prompts with AutoHotkey v2 context using MCP sampling standards when AutoHotkey-related content is detected.`,
+  description: `Automatically enhances prompts with AutoHotkey v2 context using MCP sampling standards when AutoHotkey-related content is detected.`,
   inputSchema: {
     type: 'object',
     properties: {

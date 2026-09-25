@@ -18,6 +18,7 @@ import { activeFile } from '../core/active-file.js';
 import { resolveAutoHotkeyPath } from '../core/config.js';
 import { safeParse } from '../core/validation-middleware.js';
 import { createErrorResponse } from '../utils/response-helpers.js';
+import { getCurrentAbortSignal } from '../core/mcp-request-context.js';
 import { checkCache, type CachedCheckResult } from '../core/check-cache.js';
 
 const execAsync = promisify(exec);
@@ -63,7 +64,7 @@ export type AhkCloudValidateArgs = z.infer<typeof AhkCloudValidateArgsSchema>;
 
 export const ahkCloudValidateToolDefinition = {
   name: 'AHK_Cloud_Validate',
-  description: `Validate AHK v2 code with optional watch mode for auto-validation on save.
+  description: `Validate AHK v2 code by running it with the local AutoHotkey interpreter (a temp copy; nothing is uploaded). The code executes, so side effects such as Run, file writes or GUIs happen. Use AHK_Lint for static checks that run nothing.
 
 **Modes:**
 - \`validate\`: One-shot validation of code snippet
@@ -305,6 +306,7 @@ export class AhkCloudValidateTool {
         const child = spawn(ahkPath, ['/ErrorStdOut=utf-8', tempFile], {
           cwd: tempDir,
           windowsHide: true,
+          signal: getCurrentAbortSignal(),
           stdio: ['ignore', 'pipe', 'pipe'],
         });
 

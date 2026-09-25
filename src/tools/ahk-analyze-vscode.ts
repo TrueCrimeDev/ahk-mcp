@@ -49,8 +49,7 @@ export const AhkVSCodeProblemsArgsSchema = z
 
 export const ahkVSCodeProblemsToolDefinition = {
   name: 'AHK_VSCode_Problems',
-  description: `Ahk vscode problems
-Reads a VS Code Problems list (from file or provided JSON) and summarizes AutoHotkey LSP diagnostics.`,
+  description: `Reads a VS Code Problems list (from file or provided JSON) and summarizes AutoHotkey LSP diagnostics.`,
   inputSchema: {
     type: 'object',
     properties: {

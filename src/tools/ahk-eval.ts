@@ -3,6 +3,7 @@ import logger from '../logger.js';
 import { safeParse } from '../core/validation-middleware.js';
 import type { McpToolResponse } from '../types/mcp-types.js';
 import { ReplSession, formatEval } from '../repl.js';
+import { getCurrentAbortSignal } from '../core/mcp-request-context.js';
 
 /**
  * Shared persistent interpreter backing AHK_Eval / AHK_Repl_Reset. State
@@ -22,8 +23,7 @@ export const AhkEvalArgsSchema = z.object({
 
 export const ahkEvalToolDefinition = {
   name: 'AHK_Eval',
-  description: `Ahk eval
-Evaluate a single AutoHotkey v2 expression in a PERSISTENT interpreter; variables
+  description: `Evaluate a single AutoHotkey v2 expression in a PERSISTENT interpreter; variables
 persist across calls until AHK_Repl_Reset. Expression-level only — use AHK_Run for
 multi-line scripts. Requires the alpha.30+Console fork (Print()/Eval()).
 Example: { "expr": "x := 41" } then { "expr": "x + 1" } → 42.`,
@@ -48,7 +48,7 @@ export class AhkEvalTool {
     const { expr, timeout_ms } = parsed.data;
 
     try {
-      const result = await replSession.send(expr, timeout_ms);
+      const result = await replSession.send(expr, timeout_ms, getCurrentAbortSignal());
       return { content: [{ type: 'text', text: formatEval(result) }] };
     } catch (error) {
       logger.error('Error in AHK_Eval tool:', error);
@@ -73,8 +73,7 @@ export const AhkReplResetArgsSchema = z.object({});
 
 export const ahkReplResetToolDefinition = {
   name: 'AHK_Repl_Reset',
-  description: `Ahk repl reset
-Restart the persistent AHK_Eval interpreter, clearing all variables and state.`,
+  description: `Restart the persistent AHK_Eval interpreter, clearing all variables and state.`,
   inputSchema: {
     type: 'object',
     properties: {},

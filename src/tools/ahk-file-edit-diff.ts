@@ -23,8 +23,7 @@ export const AhkDiffEditArgsSchema = z.object({
 
 export const ahkDiffEditToolDefinition = {
   name: 'AHK_File_Edit_Diff',
-  description: `Ahk diff edit
-Apply unified diff patches to edit AutoHotkey files (similar to Claude filesystem MCP)`,
+  description: `Apply unified diff patches to edit AutoHotkey files (similar to Claude filesystem MCP)`,
   inputSchema: {
     type: 'object',
     properties: {

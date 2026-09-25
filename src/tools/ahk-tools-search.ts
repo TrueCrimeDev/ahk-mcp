@@ -1,57 +1,35 @@
 import { z } from 'zod';
 import logger from '../logger.js';
 import { safeParse } from '../core/validation-middleware.js';
+import { TOOL_CATEGORIES } from '../core/tool-categories.js';
+import { toolSettings } from '../core/tool-settings.js';
 import type { McpToolResponse } from '../types/mcp-types.js';
 
+const CATEGORY_OPTIONS = [...TOOL_CATEGORIES, 'all'] as const;
+
 export const AhkToolsSearchArgsSchema = z.object({
-  category: z
-    .enum(['file', 'analysis', 'execution', 'docs', 'library', 'system', 'all'])
-    .optional()
-    .default('all')
-    .describe('Tool category to search'),
+  category: z.enum(CATEGORY_OPTIONS).optional().default('all').describe('Tool category to search'),
   keyword: z.string().optional().describe('Keyword to search in tool names and descriptions'),
   detailLevel: z
     .enum(['names', 'summary', 'full'])
     .optional()
     .default('summary')
-    .describe('Level of detail: names (~50 tokens), summary (~200 tokens), full (~1000+ tokens)'),
+    .describe(
+      'names = tool names only; summary = plus one-line summaries; full = plus input schemas'
+    ),
 });
 
 export const ahkToolsSearchToolDefinition = {
   name: 'AHK_Tools_Search',
-  description: `Efficiently discover available AHK tools without loading all 35+ tool definitions upfront. Progressive tool discovery reduces initial token usage from 17,500-70,000 tokens to 50-1,000 tokens based on detail level.
+  description: `Find the right AHK tool by category or keyword without reading every tool definition. Use when unsure which tool fits a task; skip it when the tool name is already known.
 
-**Examples:**
-• List all file tools: { category: "file", detailLevel: "names" } - Returns only tool names (~50 tokens)
-• Search for analysis tools: { category: "analysis", detailLevel: "summary" } - Returns names + brief descriptions (~200 tokens)
-• Find tools with keyword: { keyword: "edit", detailLevel: "summary" } - Returns matching tools
-• Get full details: { category: "file", detailLevel: "full" } - Returns complete tool definitions (~1000+ tokens)
-
-**Categories:**
-- file: File operations (view, edit, create, detect)
-- analysis: Code analysis and diagnostics
-- execution: Script running and debugging
-- docs: Documentation search and context
-- library: Library management (list, info, import)
-- system: System configuration and settings
-
-**Detail Levels:**
-- names: Just tool names (minimal tokens)
-- summary: Names + brief descriptions (medium tokens)
-- full: Complete tool definitions with all parameters (high tokens)
-
-**Use Cases:**
-• Initial exploration: Use "names" or "summary" to see what's available
-• Targeted search: Use keyword to find specific functionality
-• Full details: Use "full" only when you need complete parameter schemas
-
-**See also:** AHK_Config (system configuration), AHK_Analytics (usage analytics)`,
+Example: { "keyword": "edit", "detailLevel": "summary" }`,
   inputSchema: {
     type: 'object',
     properties: {
       category: {
         type: 'string',
-        enum: ['file', 'analysis', 'execution', 'docs', 'library', 'system', 'all'],
+        enum: [...CATEGORY_OPTIONS],
         description: 'Tool category to search',
         default: 'all',
       },
@@ -63,7 +41,7 @@ export const ahkToolsSearchToolDefinition = {
         type: 'string',
         enum: ['names', 'summary', 'full'],
         description:
-          'Level of detail: names (~50 tokens), summary (~200 tokens), full (~1000+ tokens)',
+          'names = tool names only; summary = plus one-line summaries; full = plus input schemas',
         default: 'summary',
       },
     },
@@ -83,178 +61,39 @@ export const ahkToolsSearchToolDefinition = {
 
 export type AhkToolsSearchArgs = z.infer<typeof AhkToolsSearchArgsSchema>;
 
-/**
- * Tool catalog with categorization
- */
 interface ToolInfo {
   name: string;
   category: string;
   summary: string;
-  fullDefinition?: Record<string, unknown>;
+  description: string;
+  inputSchema: unknown;
 }
 
-const TOOL_CATALOG: ToolInfo[] = [
-  // File Operations
-  {
-    name: 'AHK_File_Edit_Advanced',
-    category: 'file',
-    summary: 'Primary file editing tool - detects file, sets active, and provides editing guidance',
-  },
-  {
-    name: 'AHK_File_Edit',
-    category: 'file',
-    summary: 'Direct file editing with replace, insert, append, delete actions',
-  },
-  {
-    name: 'AHK_File_Edit_Small',
-    category: 'file',
-    summary: 'Optimized for small, targeted file edits',
-  },
-  {
-    name: 'AHK_File_Edit_Diff',
-    category: 'file',
-    summary: 'Complex multi-location file changes with diff preview',
-  },
-  {
-    name: 'AHK_File_Create',
-    category: 'file',
-    summary: 'Create new AHK files with templates and validation',
-  },
-  {
-    name: 'AHK_File_View',
-    category: 'file',
-    summary: 'View file contents with syntax highlighting',
-  },
-  {
-    name: 'AHK_File_Detect',
-    category: 'file',
-    summary: 'Auto-detect AHK files from context and conversation',
-  },
-  {
-    name: 'AHK_File_Active',
-    category: 'file',
-    summary: 'Get/set the active file for operations (preferred active-file tool)',
-  },
-  { name: 'AHK_File_Recent', category: 'file', summary: 'List recently accessed AHK files' },
+/** First sentence (or line) of a description, capped for token economy. */
+function summarize(description: string): string {
+  const firstLine = description.trim().split('\n')[0];
+  const sentence = /^(.+?[.!?])(\s|$)/.exec(firstLine)?.[1] ?? firstLine;
+  return sentence.length > 160 ? `${sentence.slice(0, 157)}...` : sentence;
+}
 
-  // Analysis Tools
-  {
-    name: 'AHK_Analyze',
-    category: 'analysis',
-    summary: 'Comprehensive code analysis with syntax checking and diagnostics',
-  },
-  {
-    name: 'AHK_Diagnostics',
-    category: 'analysis',
-    summary: 'Detailed diagnostics for code quality issues',
-  },
-  { name: 'AHK_Summary', category: 'analysis', summary: 'Quick code summary with statistics' },
-  {
-    name: 'AHK_LSP',
-    category: 'analysis',
-    summary: 'Language server protocol integration for completions',
-  },
-  {
-    name: 'AHK_THQBY_Document_Symbols',
-    category: 'analysis',
-    summary: 'Document symbols via THQBY AutoHotkey v2 LSP (external server)',
-  },
-  {
-    name: 'AHK_VSCode_Problems',
-    category: 'analysis',
-    summary: 'VSCode-compatible problem diagnostics',
-  },
-  {
-    name: 'AHK_Smart_Orchestrator',
-    category: 'analysis',
-    summary: 'Intelligent workflow orchestration with caching (detect → analyze → view)',
-  },
-  {
-    name: 'AHK_Workflow_Analyze_Fix_Run',
-    category: 'analysis',
-    summary: 'Analyze → fix → verify → run workflow in a single call',
-  },
-
-  // Execution Tools
-  {
-    name: 'AHK_Run',
-    category: 'execution',
-    summary: 'Run AHK scripts with process management and window detection',
-  },
-  {
-    name: 'AHK_Debug_Agent',
-    category: 'execution',
-    summary: 'Debug script execution with detailed error reports',
-  },
-  {
-    name: 'AHK_Process_Request',
-    category: 'execution',
-    summary: 'Process complex user requests with automated workflow',
-  },
-  {
-    name: 'AHK_Test_Interactive',
-    category: 'execution',
-    summary: 'Interactive testing and validation of AHK code',
-  },
-  {
-    name: 'AHK_Cloud_Validate',
-    category: 'execution',
-    summary: 'Cloud-backed AutoHotkey syntax and runtime validation',
-  },
-  {
-    name: 'AHK_Debug_DBGp',
-    category: 'execution',
-    summary: 'DBGp debugger for breakpoints, stepping, variables, and auto-fix flows',
-  },
-
-  // Documentation Tools
-  { name: 'AHK_Doc_Search', category: 'docs', summary: 'Search AutoHotkey v2 documentation' },
-  {
-    name: 'AHK_Context_Injector',
-    category: 'docs',
-    summary: 'Inject relevant documentation context automatically',
-  },
-  { name: 'AHK_Prompts', category: 'docs', summary: 'Get predefined prompts for common AHK tasks' },
-  {
-    name: 'AHK_Sampling_Enhancer',
-    category: 'docs',
-    summary: 'Generate enhanced code samples and examples',
-  },
-
-  // Library Tools
-  { name: 'AHK_Library_List', category: 'library', summary: 'List available AHK library scripts' },
-  {
-    name: 'AHK_Library_Info',
-    category: 'library',
-    summary: 'Get detailed information about a library',
-  },
-  {
-    name: 'AHK_Library_Import',
-    category: 'library',
-    summary: 'Import library code into your script',
-  },
-  {
-    name: 'AHK_Library_Search',
-    category: 'library',
-    summary: 'Search symbols across installed AutoHotkey libraries',
-  },
-
-  // System Tools
-  { name: 'AHK_Config', category: 'system', summary: 'View and manage system configuration' },
-  { name: 'AHK_Settings', category: 'system', summary: 'Manage server settings and preferences' },
-  {
-    name: 'AHK_Tools_Search',
-    category: 'system',
-    summary: 'Discover the available AutoHotkey MCP tools with token-efficient output',
-  },
-  {
-    name: 'AHK_VSCode_Open',
-    category: 'system',
-    summary: 'Open the last edited file (or a specified file) in VS Code',
-  },
-  { name: 'AHK_Alpha', category: 'system', summary: 'Access alpha/experimental features' },
-  { name: 'AHK_Analytics', category: 'system', summary: 'View usage analytics and statistics' },
-];
+/**
+ * Built from the live tool metadata (the same source as tools/list), so the catalog
+ * cannot drift from what the server actually exposes. Imported lazily: tool-metadata
+ * imports this module's definition, so a static import back would be circular.
+ */
+async function getCatalog(): Promise<ToolInfo[]> {
+  const { getToolMetadata } = await import('../core/tool-metadata.js');
+  return getToolMetadata()
+    .filter(entry => toolSettings.isToolAvailable(entry.definition.name))
+    .map(entry => ({
+      name: entry.definition.name,
+      category: entry.category,
+      summary: summarize(entry.definition.description ?? ''),
+      description: entry.definition.description ?? '',
+      inputSchema: entry.definition.inputSchema,
+    }))
+    .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+}
 
 /**
  * AHK Tools Search Tool
@@ -273,9 +112,11 @@ export class AhkToolsSearchTool {
         `Tool search: category=${category}, keyword=${keyword || 'none'}, detail=${detailLevel}`
       );
 
+      const catalog = await getCatalog();
+
       // Filter tools by category
       let filteredTools =
-        category === 'all' ? TOOL_CATALOG : TOOL_CATALOG.filter(tool => tool.category === category);
+        category === 'all' ? catalog : catalog.filter(tool => tool.category === category);
 
       // Filter by keyword if provided
       if (keyword) {
@@ -283,7 +124,7 @@ export class AhkToolsSearchTool {
         filteredTools = filteredTools.filter(
           tool =>
             tool.name.toLowerCase().includes(keywordLower) ||
-            tool.summary.toLowerCase().includes(keywordLower)
+            tool.description.toLowerCase().includes(keywordLower)
         );
       }
 
@@ -296,7 +137,7 @@ export class AhkToolsSearchTool {
 
       if (filteredTools.length === 0) {
         response += `No tools found matching your criteria.\n\n`;
-        response += `**Available categories:** file, analysis, execution, docs, library, system\n`;
+        response += `**Available categories:** ${TOOL_CATEGORIES.join(', ')}\n`;
         response += `**Try:** { category: "file", detailLevel: "names" }`;
 
         return {
@@ -345,10 +186,9 @@ export class AhkToolsSearchTool {
           response += `## ${cat.charAt(0).toUpperCase() + cat.slice(1)} Tools\n\n`;
           tools.forEach(tool => {
             response += `### ${tool.name}\n`;
-            response += `**Summary:** ${tool.summary}\n`;
-            response += `**Category:** ${tool.category}\n`;
-            response += `\n**To use this tool:** Call it directly with the appropriate parameters.\n`;
-            response += `**For parameter details:** Refer to the MCP tool definitions or use summaryOnly mode.\n\n`;
+            response += `${tool.description}\n\n`;
+            response +=
+              '**Input schema:**\n```json\n' + JSON.stringify(tool.inputSchema) + '\n```\n\n';
           });
         });
       }
@@ -370,6 +210,7 @@ export class AhkToolsSearchTool {
           name: tool.name,
           category: tool.category,
           summary: tool.summary,
+          ...(detailLevel === 'full' ? { inputSchema: tool.inputSchema } : {}),
         })),
       };
 

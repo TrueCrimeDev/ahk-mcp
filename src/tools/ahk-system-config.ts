@@ -16,8 +16,7 @@ export const AhkConfigArgsSchema = z.object({
 
 export const ahkConfigToolDefinition = {
   name: 'AHK_Config',
-  description: `Ahk config
-Get/Set MCP configuration for script roots, AutoHotkey executable path, and run startup behavior.`,
+  description: `Get/Set MCP configuration for script roots, AutoHotkey executable path, and run startup behavior.`,
   inputSchema: {
     type: 'object',
     properties: {

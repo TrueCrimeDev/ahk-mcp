@@ -16,6 +16,7 @@ import path from 'path';
 import { resolveAutoHotkeyPath } from './config.js';
 import { pathConverter } from '../utils/path-converter.js';
 import logger from '../logger.js';
+import { getCurrentAbortSignal } from './mcp-request-context.js';
 
 export interface UiaErrorShape {
   code: string;
@@ -107,6 +108,7 @@ export async function runInspector(
 
     const child = spawn(exe, ['/ErrorStdOut', toScriptArg(scriptPath)], {
       windowsHide: true,
+      signal: getCurrentAbortSignal(),
     });
 
     const finish = (response: UiaResponse) => {

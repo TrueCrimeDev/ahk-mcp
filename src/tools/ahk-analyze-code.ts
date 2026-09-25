@@ -34,8 +34,7 @@ export const AhkAnalyzeArgsSchema = z.object({
 
 export const ahkAnalyzeToolDefinition = {
   name: 'AHK_Analyze',
-  description: `Ahk analyze
-Analyzes AutoHotkey v2 scripts and provides contextual information about functions, variables, classes, and other elements used in the code. Accepts direct code or a file path (falls back to active file).`,
+  description: `Analyzes AutoHotkey v2 scripts and provides contextual information about functions, variables, classes, and other elements used in the code. Accepts direct code or a file path (falls back to active file).`,
   inputSchema: {
     type: 'object',
     properties: {

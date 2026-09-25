@@ -30,8 +30,7 @@ export const AhkContextInjectorArgsSchema = z.object({
 
 export const ahkContextInjectorToolDefinition = {
   name: 'AHK_Context_Injector',
-  description: `Ahk context injector
-Analyzes user prompts and LLM thinking to automatically inject relevant AutoHotkey v2 documentation context.`,
+  description: `Analyzes user prompts and LLM thinking to automatically inject relevant AutoHotkey v2 documentation context.`,
   inputSchema: {
     type: 'object',
     properties: {

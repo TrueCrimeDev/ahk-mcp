@@ -16,6 +16,15 @@ import type { McpToolResponse } from '../types/mcp-types.js';
 
 const execAsync = promisify(exec);
 
+/**
+ * Quote a value as a PowerShell single-quoted string. PowerShell treats the typographic
+ * quotes U+2018-U+201B as single quotes too, so each is doubled like ASCII ' — escaping
+ * only ' would let a crafted argument close the string.
+ */
+function psQuote(value: string): string {
+  return `'${value.replace(/['\u2018-\u201B]/g, quote => quote + quote)}'`;
+}
+
 export const AhkRunArgsSchema = z.object({
   mode: z.enum(['run', 'watch']).default('run'),
   filePath: z.string().optional(),
@@ -38,8 +47,7 @@ export const AhkRunArgsSchema = z.object({
 
 export const ahkRunToolDefinition = {
   name: 'AHK_Run',
-  description: `Ahk run
-Run an AutoHotkey v2 script, or watch a file and auto-run it after edits.`,
+  description: `Run an AutoHotkey v2 script, or watch a file and auto-run it after edits.`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -149,8 +157,8 @@ export class AhkRunTool {
         try {
           // Use PowerShell to check for windows created by the process
           const psScript = `
-            $pid = ${pid}
-            $windows = Get-Process -Id $pid -ErrorAction SilentlyContinue | ForEach-Object {
+            $procId = ${pid}
+            $windows = Get-Process -Id $procId -ErrorAction SilentlyContinue | ForEach-Object {
               $_.MainWindowTitle
             }
             if ($windows) {
@@ -321,7 +329,7 @@ export class AhkRunTool {
         });
 
         const directCmd = `"${ahkExe}" "${scriptPath}"${escapedArgs.length ? ' ' + escapedArgs.join(' ') : ''}`;
-        const spCmd = `Start-Process -FilePath '${ahkExe.replace(/'/g, "''")}' -ArgumentList @('${scriptPath.replace(/'/g, "''")}' ${scriptArgs.map(a => `, '${String(a).replace(/'/g, "''")}'`).join('')})${wait ? ' -Wait' : ''}`;
+        const spCmd = `Start-Process -FilePath ${psQuote(ahkExe)} -ArgumentList @(${psQuote(scriptPath)}${scriptArgs.map(a => `, ${psQuote(String(a))}`).join('')})${wait ? ' -Wait' : ''}`;
 
         let timeoutId: NodeJS.Timeout | null = null;
         let startupTimeoutId: NodeJS.Timeout | null = null;
@@ -714,7 +722,7 @@ export class AhkRunTool {
 
         const commandPreview =
           runner === 'powershell'
-            ? `Start-Process -FilePath '${resolvedAhkPath}' -ArgumentList @('${file}'${(scriptArgs || []).map(a => `, '${a.replace(/'/g, "''")}'`).join('')})${wait ? ' -Wait' : ''}`
+            ? `Start-Process -FilePath ${psQuote(resolvedAhkPath)} -ArgumentList @(${psQuote(file)}${(scriptArgs || []).map(a => `, ${psQuote(a)}`).join('')})${wait ? ' -Wait' : ''}`
             : `"${resolvedAhkPath}" "${file}"${(scriptArgs || []).length ? ' ' + (scriptArgs || []).join(' ') : ''}`;
 
         const response: {

@@ -42,8 +42,7 @@ export const AhkSettingsArgsSchema = z.object({
 
 export const ahkSettingsToolDefinition = {
   name: 'AHK_Settings',
-  description: `Ahk settings
-Manage tool settings and enable/disable features`,
+  description: `Manage tool settings and enable/disable features`,
   inputSchema: {
     type: 'object',
     properties: {

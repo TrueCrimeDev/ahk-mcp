@@ -162,31 +162,33 @@ export class ToolRegistry {
         limit: 5,
       });
 
-      if (fetchResult.content && fetchResult.content.length > 0 && fetchResult.content[0].text) {
-        const searchData = JSON.parse(fetchResult.content[0].text);
-        const results = searchData.results || [];
-        interface DocResult {
-          id: string;
-          title: string;
-          description?: string;
-          summary?: string;
-          url?: string;
-        }
-        const firstResult = results.find((r: DocResult) => r.id === searchId) || results[0];
+      // AHK_Doc_Search's text content is human-readable; its structuredContent (declared by
+      // its outputSchema) is the machine-readable form.
+      interface DocResult {
+        id: string;
+        name: string;
+        description?: string | null;
+        path?: string | null;
+      }
+      const structured = (fetchResult as { structuredContent?: { results?: DocResult[] } })
+        .structuredContent;
+      const results = structured?.results ?? [];
+      const firstResult = results.find(r => r.id === searchId) ?? results[0];
 
-        if (firstResult) {
-          const docResponse = {
-            id: firstResult.id,
-            title: firstResult.title,
-            text: firstResult.description || firstResult.summary || 'AutoHotkey documentation item',
-            url: firstResult.url,
-            metadata: { source: 'autohotkey_docs', version: 'v2' },
-          };
+      if (firstResult) {
+        const docResponse = {
+          id: firstResult.id,
+          title: firstResult.name,
+          text: firstResult.description || 'AutoHotkey documentation item',
+          url: firstResult.path
+            ? `https://www.autohotkey.com/docs/v2/${firstResult.path}`
+            : `https://www.autohotkey.com/docs/v2/search.htm?q=${encodeURIComponent(searchId)}`,
+          metadata: { source: 'autohotkey_docs', version: 'v2' },
+        };
 
-          return {
-            content: [{ type: 'text' as const, text: JSON.stringify(docResponse) }],
-          };
-        }
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(docResponse) }],
+        };
       }
 
       return {
@@ -197,7 +199,7 @@ export class ToolRegistry {
               id: searchId,
               title: 'AutoHotkey Documentation Item',
               text: 'Documentation not found for this item. Try searching for related terms.',
-              url: `https://www.autohotkey.com/docs/v2/search.htm?q=${searchId}`,
+              url: `https://www.autohotkey.com/docs/v2/search.htm?q=${encodeURIComponent(searchId)}`,
               metadata: { source: 'autohotkey_docs', version: 'v2' },
             }),
           },

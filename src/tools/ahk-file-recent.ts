@@ -33,8 +33,7 @@ export const AhkRecentArgsSchema = z.object({
 
 export const ahkRecentToolDefinition = {
   name: 'AHK_File_Recent',
-  description: `Ahk recent scripts
-List the most recent AutoHotkey scripts from configured directories. Supports overriding A_ScriptDir.`,
+  description: `List the most recent AutoHotkey scripts from configured directories. Supports overriding A_ScriptDir.`,
   inputSchema: {
     type: 'object',
     properties: {

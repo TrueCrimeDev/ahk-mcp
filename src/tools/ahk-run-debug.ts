@@ -354,6 +354,21 @@ class DebugPortProxy {
   }
 }
 
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+
+/**
+ * The listener and proxy carry unauthenticated DBGp traffic, so the model may only aim
+ * them at loopback unless the operator opts in with AHK_MCP_ALLOW_REMOTE_DEBUG=1.
+ */
+function isAllowedDebugHost(host: string): boolean {
+  return (
+    LOOPBACK_HOSTS.has(host.trim().toLowerCase()) || process.env.AHK_MCP_ALLOW_REMOTE_DEBUG === '1'
+  );
+}
+
+const REMOTE_DEBUG_MESSAGE =
+  'Only loopback hosts (127.0.0.1, localhost, ::1) are allowed; set AHK_MCP_ALLOW_REMOTE_DEBUG=1 to permit others';
+
 export const AhkDebugAgentArgsSchema = z.object({
   mode: z
     .enum(['start', 'stop', 'status', 'get_events', 'scan'])
@@ -363,7 +378,8 @@ export const AhkDebugAgentArgsSchema = z.object({
     .string()
     .optional()
     .default('127.0.0.1')
-    .describe('Host to listen on for /Debug connections'),
+    .refine(isAllowedDebugHost, REMOTE_DEBUG_MESSAGE)
+    .describe('Host to listen on for /Debug connections (loopback only)'),
   listenPort: z
     .number()
     .optional()
@@ -384,8 +400,9 @@ export const AhkDebugAgentArgsSchema = z.object({
     .describe('Timeout in milliseconds to wait for first connection in scan mode'),
   forwardHost: z
     .string()
+    .refine(isAllowedDebugHost, REMOTE_DEBUG_MESSAGE)
     .optional()
-    .describe('Optional upstream debug adapter host to forward to (proxy mode)'),
+    .describe('Optional upstream debug adapter host to forward to (proxy mode, loopback only)'),
   forwardPort: z
     .number()
     .optional()
@@ -409,8 +426,7 @@ export const AhkDebugAgentArgsSchema = z.object({
 
 export const ahkDebugAgentToolDefinition = {
   name: 'AHK_Debug_Agent',
-  description: `Ahk debug agent
-Starts a TCP listener for AutoHotkey /Debug and optionally proxies to a real debug adapter while capturing traffic.`,
+  description: `Starts a TCP listener for AutoHotkey /Debug and optionally proxies to a real debug adapter while capturing traffic.`,
   inputSchema: {
     type: 'object',
     properties: {

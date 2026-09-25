@@ -31,8 +31,7 @@ export const AhkDocSearchArgsSchema = z.object({
 
 export const ahkDocSearchToolDefinition = {
   name: 'AHK_Doc_Search',
-  description: `Ahk doc search
-Full-text search across AutoHotkey v2 docs using FlexSearch (functions, variables, classes, methods).`,
+  description: `Full-text search across AutoHotkey v2 docs using FlexSearch (functions, variables, classes, methods).`,
   inputSchema: {
     type: 'object',
     properties: {

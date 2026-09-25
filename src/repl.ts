@@ -167,9 +167,13 @@ export class ReplSession {
    * HTTP) re-execute on every later call. Keep AHK_Eval to expressions and
    * variable assignments; use AHK_Run for scripts. AHK_Repl_Reset clears history.
    */
-  async send(expr: string, timeoutMs: number = DEFAULT_TIMEOUT): Promise<EvalResult> {
+  async send(
+    expr: string,
+    timeoutMs: number = DEFAULT_TIMEOUT,
+    signal?: AbortSignal
+  ): Promise<EvalResult> {
     const combined = this.history.length > 0 ? `(${[...this.history, expr].join(', ')})` : expr;
-    const result = await this.sendRaw(combined, timeoutMs);
+    const result = await this.sendRaw(combined, timeoutMs, signal);
     // Only remember statements that ran cleanly, so one failing line can't
     // poison every subsequent eval by throwing during replay.
     if (!result.timedOut && result.error.length === 0) {
@@ -179,7 +183,11 @@ export class ReplSession {
   }
 
   /** Frame one payload to the live interpreter and read back its result. */
-  private async sendRaw(payload: string, timeoutMs: number): Promise<EvalResult> {
+  private async sendRaw(
+    payload: string,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<EvalResult> {
     this.ensureStarted();
     if (this.pending) {
       throw new Error('REPL is busy with another expression.');
@@ -189,13 +197,23 @@ export class ReplSession {
     const wire = payload.replace(/\\/g, '\\\\').replace(/\n/g, NL_ENCODE);
 
     return await new Promise<EvalResult>(resolve => {
-      const timer = setTimeout(() => {
+      // A timed-out or cancelled expression may still be spinning (an infinite loop would
+      // block every later eval), so the host is killed; the next call respawns it and
+      // replays history, which excludes this expression.
+      const abandon = (reason: string) => {
         const p = this.pending;
         if (p && p.marker === marker) {
+          clearTimeout(p.timer);
           this.pending = null;
+          p.error.push(reason);
           resolve({ output: p.output, error: p.error, timedOut: true });
+          this.stop();
         }
-      }, timeoutMs);
+      };
+      const timer = setTimeout(() => abandon('Timed out; interpreter restarted.'), timeoutMs);
+      signal?.addEventListener('abort', () => abandon('Cancelled; interpreter restarted.'), {
+        once: true,
+      });
 
       this.pending = { marker, output: [], error: [], resolve, timer };
       this.child!.stdin.write(`${seq}${FIELD_SEP}${wire}\n`);
@@ -233,7 +251,7 @@ export class ReplSession {
 /** Render an EvalResult into LLM-friendly text. */
 export function formatEval(r: EvalResult): string {
   const lines: string[] = [];
-  if (r.timedOut) lines.push('(timed out — interpreter still alive)');
+  if (r.timedOut) lines.push('(timed out)');
   if (r.output.length) lines.push(r.output.join('\n'));
   if (r.error.length) lines.push('ERROR:', r.error.join('\n'));
   if (!lines.length) lines.push('(no output)');

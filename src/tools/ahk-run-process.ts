@@ -21,8 +21,7 @@ export const AhkProcessRequestArgsSchema = z.object({
 
 export const ahkProcessRequestToolDefinition = {
   name: 'AHK_Process_Request',
-  description: `Ahk process request
-Process user requests that contain file paths and instructions for AutoHotkey scripts`,
+  description: `Process user requests that contain file paths and instructions for AutoHotkey scripts`,
   inputSchema: {
     type: 'object',
     properties: {

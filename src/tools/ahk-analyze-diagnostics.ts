@@ -34,8 +34,7 @@ export const AhkDiagnosticsArgsSchema = z.object({
 
 export const ahkDiagnosticsToolDefinition = {
   name: 'AHK_Diagnostics',
-  description: `Ahk diagnostics
-Validates AutoHotkey v2 code syntax and enforces coding standards with detailed error reporting. Accepts direct code or a file path (falls back to active file).`,
+  description: `Validates AutoHotkey v2 code syntax and enforces coding standards with detailed error reporting. Accepts direct code or a file path (falls back to active file).`,
   inputSchema: {
     type: 'object',
     properties: {

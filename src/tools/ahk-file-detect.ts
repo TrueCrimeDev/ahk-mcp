@@ -24,8 +24,7 @@ export const AhkAutoFileArgsSchema = z.object({
 
 export const ahkAutoFileToolDefinition = {
   name: 'AHK_File_Detect',
-  description: `Ahk auto file
-Automatically detect and set active AutoHotkey file from user text`,
+  description: `Automatically detect and set active AutoHotkey file from user text`,
   inputSchema: {
     type: 'object',
     properties: {
