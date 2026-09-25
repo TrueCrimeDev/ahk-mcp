@@ -1,0 +1,22 @@
+# Normalize line endings. Text files are stored with LF in the repo; on
+# checkout they get the platform-native ending. This ends the mixed CRLF/LF
+# churn the repo had (no .gitattributes previously + core.autocrlf=input).
+* text=auto eol=lf
+
+# Scripts that must stay LF regardless of platform
+*.sh    text eol=lf
+
+# AutoHotkey sources are edited on Windows; keep CRLF in the working tree
+*.ahk   text eol=crlf
+
+# Binary assets — never touch
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.exe   binary
+*.dll   binary
+*.bin   binary
+*.tgz   binary
+*.zip   binary
