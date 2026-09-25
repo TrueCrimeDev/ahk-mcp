@@ -73,22 +73,30 @@ export class ReplSession {
   private ensureStarted(): void {
     if (this.child) return;
     const bin = resolveAutoHotkeyPath() ?? 'AutoHotkey64.exe';
-    this.child = spawn(bin, ['/ErrorStdOut=utf-8', toWinArg(HOST_SCRIPT)], {
+    const child = spawn(bin, ['/ErrorStdOut=utf-8', toWinArg(HOST_SCRIPT)], {
       windowsHide: true,
     }) as ChildProcessWithoutNullStreams;
+    this.child = child;
 
-    this.child.stdout.on('data', (chunk: Buffer) => this.onStdout(chunk));
-    this.child.stderr.on('data', (chunk: Buffer) => {
+    // Every handler checks it still belongs to the live child: after reset() the
+    // killed process's events arrive late, once a replacement may already be
+    // serving a command, and must not touch its state.
+    const isCurrent = () => this.child === child;
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (isCurrent()) this.onStdout(chunk);
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
       // Host load-time errors land here; attach to the in-flight command if any.
+      if (!isCurrent() || !this.pending) return;
       const text = chunk.toString('utf-8');
-      if (this.pending) {
-        for (const line of text.split('\n')) {
-          const t = line.replace(/\r$/, '');
-          if (t) this.pending.error.push(t);
-        }
+      for (const line of text.split('\n')) {
+        const t = line.replace(/\r$/, '');
+        if (t) this.pending.error.push(t);
       }
     });
-    this.child.on('exit', () => {
+    child.on('exit', () => {
+      if (!isCurrent()) return;
       this.child = null;
       if (this.pending) {
         clearTimeout(this.pending.timer);
@@ -98,8 +106,8 @@ export class ReplSession {
         p.resolve({ output: p.output, error: p.error, timedOut: false });
       }
     });
-    this.child.on('error', err => {
-      if (this.pending) {
+    child.on('error', err => {
+      if (isCurrent() && this.pending) {
         this.pending.error.push(`spawn error: ${err.message} (binary: ${bin})`);
       }
     });
@@ -147,8 +155,7 @@ export class ReplSession {
    * variable assignments; use AHK_Run for scripts. AHK_Repl_Reset clears history.
    */
   async send(expr: string, timeoutMs: number = DEFAULT_TIMEOUT): Promise<EvalResult> {
-    const combined =
-      this.history.length > 0 ? `(${[...this.history, expr].join(', ')})` : expr;
+    const combined = this.history.length > 0 ? `(${[...this.history, expr].join(', ')})` : expr;
     const result = await this.sendRaw(combined, timeoutMs);
     // Only remember statements that ran cleanly, so one failing line can't
     // poison every subsequent eval by throwing during replay.

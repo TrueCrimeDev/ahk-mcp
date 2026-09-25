@@ -19,12 +19,17 @@ ERR_PREFIX := Chr(0x02)
 MARK := Chr(0x1E)
 
 stdin := FileOpen("*", "r", "UTF-8")
-while !stdin.AtEOF {
+; ReadLine blocks until a line arrives. AtEOF is not usable on a pipe: it reads
+; true whenever the pipe is momentarily empty, which ended the loop after the
+; first command. The server never sends blank lines, so an empty read means
+; stdin was closed.
+Loop {
     line := stdin.ReadLine()
     if line = ""
-        continue
+        break
     ProcessLine(line)
 }
+ExitApp
 
 ProcessLine(line) {
     sep := InStr(line, FIELD_SEP)
