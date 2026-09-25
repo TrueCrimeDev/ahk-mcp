@@ -90,6 +90,7 @@ import { AhkWorkflowAnalyzeFixRunTool } from './tools/ahk-workflow-analyze-fix-r
 import { AhkThqbyDocumentSymbolsTool } from './tools/ahk-thqby-document-symbols.js';
 import { AhkCloudValidateTool } from './tools/ahk-cloud-validate.js';
 import { AhkDebugDBGpTool } from './tools/ahk-debug-dbgp.js';
+import { AhkEvalTool, AhkReplResetTool, replSession } from './tools/ahk-eval.js';
 import { autoDetect, getActiveFilePath } from './core/active-file.js';
 import { toolSettings } from './core/tool-settings.js';
 import { configManager } from './core/path-converter-config.js';
@@ -191,6 +192,8 @@ export class AutoHotkeyMcpServer {
   public ahkLintToolInstance: AhkLintTool;
   public ahkCloudValidateToolInstance: AhkCloudValidateTool;
   public ahkDebugDBGpToolInstance: AhkDebugDBGpTool;
+  public ahkEvalToolInstance: AhkEvalTool;
+  public ahkReplResetToolInstance: AhkReplResetTool;
 
   /** DAP server handle, non-null when AHK_DAP_ENABLED=1. */
   private dapServer: DapServerHandle | null = null;
@@ -232,6 +235,8 @@ export class AutoHotkeyMcpServer {
     this.ahkLintToolInstance = new AhkLintTool();
     this.ahkCloudValidateToolInstance = new AhkCloudValidateTool();
     this.ahkDebugDBGpToolInstance = new AhkDebugDBGpTool();
+    this.ahkEvalToolInstance = new AhkEvalTool();
+    this.ahkReplResetToolInstance = new AhkReplResetTool();
 
     this.toolRegistry = new ToolRegistry(this);
 
@@ -2936,6 +2941,13 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
         logger.warn('DAP server close failed:', error);
       }
       this.dapServer = null;
+    }
+
+    // Stop the persistent AHK_Eval interpreter so its child process doesn't linger.
+    try {
+      replSession.stop();
+    } catch (error) {
+      logger.error('Failed to stop REPL session:', error);
     }
 
     if (shutdownHook) {

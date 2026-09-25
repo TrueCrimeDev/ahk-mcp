@@ -70,6 +70,8 @@ export class ToolRegistry {
       { name: 'AHK_THQBY_Document_Symbols', instance: 'ahkThqbyDocumentSymbolsToolInstance' },
       { name: 'AHK_Cloud_Validate', instance: 'ahkCloudValidateToolInstance' },
       { name: 'AHK_Debug_DBGp', instance: 'ahkDebugDBGpToolInstance' },
+      { name: 'AHK_Eval', instance: 'ahkEvalToolInstance' },
+      { name: 'AHK_Repl_Reset', instance: 'ahkReplResetToolInstance' },
     ];
 
     coreTools.forEach(tool => {

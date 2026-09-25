@@ -90,4 +90,6 @@ export interface IToolServer {
   ahkLintToolInstance: IExecutableTool;
   ahkCloudValidateToolInstance: IExecutableTool;
   ahkDebugDBGpToolInstance: IExecutableTool;
+  ahkEvalToolInstance: IExecutableTool;
+  ahkReplResetToolInstance: IExecutableTool;
 }

@@ -35,6 +35,7 @@ import { AHK_Library_Import_Definition } from '../tools/ahk-library-import.js';
 import { AHK_Library_Search_Definition } from '../tools/ahk-library-search.js';
 import { ahkCloudValidateToolDefinition } from '../tools/ahk-cloud-validate.js';
 import { ahkDebugDBGpToolDefinition } from '../tools/ahk-debug-dbgp.js';
+import { ahkEvalToolDefinition, ahkReplResetToolDefinition } from '../tools/ahk-eval.js';
 import {
   uiaWindowsToolDefinition,
   uiaTreeToolDefinition,
@@ -96,6 +97,8 @@ const MUTATING_TOOLS = new Set([
   'AHK_Smart_Orchestrator',
   'AHK_Library_Import',
   'AHK_Debug_DBGp',
+  'AHK_Eval',
+  'AHK_Repl_Reset',
 ]);
 
 const DESTRUCTIVE_TOOLS = new Set([
@@ -115,6 +118,7 @@ const OPEN_WORLD_TOOLS = new Set([
   'AHK_Smart_Orchestrator',
   'AHK_Cloud_Validate',
   'AHK_Debug_DBGp',
+  'AHK_Eval',
 ]);
 
 /**
@@ -241,6 +245,8 @@ const TOOL_METADATA: ToolMetadataEntry[] = [
   entry(AHK_Library_Search_Definition, 'library-search', 'library'),
   entry(ahkCloudValidateToolDefinition, 'cloud-validate', 'execution'),
   entry(ahkDebugDBGpToolDefinition, 'debug-dbgp', 'debug'),
+  entry(ahkEvalToolDefinition, 'eval', 'execution'),
+  entry(ahkReplResetToolDefinition, 'repl-reset', 'execution'),
   // Read-only UI Automation inspection. None of these appear in MUTATING_TOOLS,
   // DESTRUCTIVE_TOOLS or OPEN_WORLD_TOOLS, so applySpecMetadata derives
   // readOnlyHint/idempotentHint true and openWorldHint false for all six.
