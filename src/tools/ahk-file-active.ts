@@ -102,7 +102,7 @@ export class AhkFileTool {
                 const content = await fs.readFile(status.activeFile, 'utf-8');
                 const lines = content.split('\n').slice(0, 5);
                 response += '\n**Preview:**\n```autohotkey\n' + lines.join('\n') + '\n...\n```';
-              } catch (err) {
+              } catch {
                 // Ignore read errors
               }
             }

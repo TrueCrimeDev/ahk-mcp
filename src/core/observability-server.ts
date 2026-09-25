@@ -12,6 +12,10 @@ import logger from '../logger.js';
 import { tracer, formatTraceJSON, getTraceSummary } from './tracing.js';
 import { toolAnalytics } from './tool-analytics.js';
 
+const LOOPBACK_BINDS = new Set(['localhost', '127.0.0.1', '::1']);
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+
 export interface ObservabilityServerConfig {
   enabled: boolean;
   port: number;
@@ -112,10 +116,25 @@ export class ObservabilityServer {
    * Main request handler - routes to appropriate endpoint
    */
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    // Set CORS headers for browser access
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // Traces carry tool arguments and results, so only local pages may read them: a
+    // wildcard CORS header let any website fetch them, and without a Host check a
+    // DNS-rebound hostname could reach the loopback listener.
+    const hostname = (req.headers.host || '').replace(/:\d+$/, '').toLowerCase();
+    if (LOOPBACK_BINDS.has(this.config.host) && !LOOPBACK_HOSTNAMES.has(hostname)) {
+      this.sendError(res, 403, 'Host not allowed');
+      return;
+    }
+    const origin = req.headers.origin;
+    if (origin) {
+      if (!LOCAL_ORIGIN.test(origin)) {
+        this.sendError(res, 403, 'Origin not allowed');
+        return;
+      }
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    }
 
     // Handle preflight
     if (req.method === 'OPTIONS') {

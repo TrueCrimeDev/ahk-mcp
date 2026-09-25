@@ -29,7 +29,7 @@ async function dynamicJsonImport<T>(relPathFromData: string): Promise<T> {
     // Some bundlers put value on .default
     const m = mod as { default?: T };
     return m.default ?? (mod as T);
-  } catch (err) {
+  } catch {
     // Fallback to filesystem read for older Node versions
     try {
       const abs = resolveDataPath(relPathFromData);

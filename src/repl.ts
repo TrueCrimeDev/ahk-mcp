@@ -189,6 +189,10 @@ export class ReplSession {
     signal?: AbortSignal
   ): Promise<EvalResult> {
     this.ensureStarted();
+    const child = this.child;
+    if (!child) {
+      throw new Error('REPL host failed to start.');
+    }
     if (this.pending) {
       throw new Error('REPL is busy with another expression.');
     }
@@ -216,7 +220,7 @@ export class ReplSession {
       });
 
       this.pending = { marker, output: [], error: [], resolve, timer };
-      this.child!.stdin.write(`${seq}${FIELD_SEP}${wire}\n`);
+      child.stdin.write(`${seq}${FIELD_SEP}${wire}\n`);
     });
   }
 

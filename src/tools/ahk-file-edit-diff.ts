@@ -273,7 +273,9 @@ export class AhkDiffEditTool {
       try {
         currentContent = await fs.readFile(targetFile, 'utf-8');
       } catch (error) {
-        throw new Error(`Failed to read file: ${targetFile}`);
+        throw new Error(
+          `Failed to read file: ${targetFile} (${error instanceof Error ? error.message : String(error)})`
+        );
       }
 
       // Parse the diff

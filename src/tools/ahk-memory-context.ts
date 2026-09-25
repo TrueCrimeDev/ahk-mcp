@@ -84,7 +84,7 @@ export class AhkMemoryContextTool {
             path: memPath,
             content,
           });
-        } catch (err) {
+        } catch {
           // Skip files that don't exist
           continue;
         }

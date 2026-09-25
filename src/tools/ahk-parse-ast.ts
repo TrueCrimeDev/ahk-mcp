@@ -289,7 +289,7 @@ function parseParams(raw: string): Param[] {
     const byref = rest.startsWith('&');
     if (byref) rest = rest.slice(1).trim();
 
-    let variadic = false;
+    const variadic = false;
     // AHK v2 variadic uses trailing `*` on param name, e.g. `args*`.
     const variadicMatch = rest.match(/^([A-Za-z_]\w*)\s*\*\s*$/);
     if (variadicMatch) {
