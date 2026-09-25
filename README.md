@@ -89,14 +89,30 @@ Add this to `claude_desktop_config.json`:
       "args": ["C:\\Users\\YourUsername\\path\\to\\ahk-mcp\\dist\\index.js"],
       "env": {
         "NODE_ENV": "production",
-        "AHK_MCP_LOG_LEVEL": "warn"
+        "AHK_MCP_LOG_LEVEL": "warn",
+        "AHK_MCP_SCRIPT_DIR": "C:\\Users\\YourUsername\\Documents\\AutoHotkey"
       }
     }
   }
 }
 ```
 
-Use absolute paths and escape backslashes in JSON.
+Use absolute paths and escape backslashes in JSON. A ready-to-edit template is in
+[`.mcp.example.json`](.mcp.example.json).
+
+## File Access
+
+File tools only read and write inside allowed directories: the client's MCP roots,
+`AHK_MCP_SCRIPT_DIR`, the `scriptDir`/`searchDirs` set with `AHK_Config`, the server's working
+directory, and `AHK_MCP_ALLOWED_DIRS`. Paths are checked after resolving symlinks, and writes
+through a symlink are refused.
+
+| Variable | Effect |
+| --- | --- |
+| `AHK_MCP_ALLOWED_DIRS` | Extra allowed folders, `;`-separated (Windows or POSIX paths) |
+| `AHK_MCP_UNRESTRICTED_PATHS=1` | Turn off the allowlist (the symlink guard stays on) |
+| `AHK_MCP_ALLOW_REMOTE_DEBUG=1` | Let `AHK_Debug_Agent` listen on / forward to non-loopback hosts |
+| `AHK_MCP_TRANSPORT=http` | Serve Streamable HTTP instead of stdio (same as `--http`) |
 
 ## Configure AutoHotkey Path and Startup Behavior
 
@@ -105,7 +121,7 @@ Use `AHK_Config` to set the executable path and non-blocking startup behavior:
 ```json
 {
   "action": "set",
-  "ahkPath": "C:\\Users\\uphol\\Documents\\Design\\Coding\\AutoHotkey\\bin\\AutoHotkey64.exe",
+  "ahkPath": "C:\\Program Files\\AutoHotkey\\v2\\AutoHotkey64.exe",
   "waitForStdoutLine": true,
   "stdoutLineTimeoutMs": 300
 }

@@ -11,6 +11,7 @@ import { createPreviewGenerator } from '../utils/dry-run-preview.js';
 import { safeParse } from '../core/validation-middleware.js';
 import { setLastEditedFile } from '../core/config.js';
 import { openFileInVSCode } from '../utils/vscode-open.js';
+import { assertAllowedPath } from '../core/path-policy.js';
 
 type EditAction =
   | 'replace_regex'
@@ -277,6 +278,7 @@ export class AhkSmallEditTool {
 
       for (const target of targets) {
         const absolutePath = path.resolve(target);
+        await assertAllowedPath(absolutePath, 'write');
 
         let original: string;
         try {

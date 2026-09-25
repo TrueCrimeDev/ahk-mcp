@@ -8,6 +8,7 @@ import { getPrioritizedFileSearchPlan, loadConfig } from '../core/config.js';
 import { safeParse } from '../core/validation-middleware.js';
 import { checkToolAvailability } from '../core/tool-settings.js';
 import type { McpToolResponse } from '../types/mcp-types.js';
+import { assertAllowedPath } from '../core/path-policy.js';
 
 export const AhkFileListArgsSchema = z.object({
   directory: z
@@ -449,6 +450,7 @@ export class AhkFileListTool {
     }
 
     const resolved = path.resolve(candidate);
+    await assertAllowedPath(resolved, 'read');
     const stat = await fs.stat(resolved).catch(() => {
       throw new Error(`Directory not found: ${resolved}`);
     });

@@ -15,6 +15,7 @@ import { safeParse } from '../core/validation-middleware.js';
 import { createToolDefinition } from '../utils/schema-generator.js';
 import { ErrorResponseBuilder, ErrorCode } from '../core/error-response-builder.js';
 import type { ErrorCodeType } from '../core/error-types.js';
+import { assertAllowedPath } from '../core/path-policy.js';
 
 type FileViewArgs = z.infer<typeof AhkFileViewArgsSchema>;
 
@@ -240,7 +241,7 @@ export class AhkFileViewTool {
 
   private async generateView(filePath: string, args: FileViewArgs): Promise<ViewResult> {
     // Read file content
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await fs.readFile(await assertAllowedPath(filePath, 'read'), 'utf-8');
     const lines = content.split('\n');
 
     // Generate metadata

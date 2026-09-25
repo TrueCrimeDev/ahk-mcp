@@ -9,6 +9,7 @@ import { safeParse } from '../core/validation-middleware.js';
 import { setLastEditedFile } from '../core/config.js';
 import { openFileInVSCode } from '../utils/vscode-open.js';
 import type { McpToolResponse } from '../types/mcp-types.js';
+import { assertAllowedPath } from '../core/path-policy.js';
 
 export const AhkDiffEditArgsSchema = z.object({
   diff: z.string().describe('Unified diff format patch to apply'),
@@ -265,6 +266,7 @@ export class AhkDiffEditTool {
       if (!targetFile.toLowerCase().endsWith('.ahk')) {
         throw new Error('Can only edit .ahk files');
       }
+      await assertAllowedPath(targetFile, 'write');
 
       // Read the current content
       let currentContent: string;

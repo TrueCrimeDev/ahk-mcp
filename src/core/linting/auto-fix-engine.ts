@@ -9,6 +9,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import logger from '../../logger.js';
 import { LintError } from './code-quality-manager.js';
+import { assertAllowedPath } from '../path-policy.js';
 
 export interface AutoFixResult {
   success: boolean;
@@ -49,6 +50,7 @@ export class AutoFixEngine {
     const maxFixes = options.maxFixes ?? 100;
 
     try {
+      await assertAllowedPath(filePath, dryRun ? 'read' : 'write');
       // Read file content
       const content = await fs.readFile(filePath, 'utf-8');
       const lines = content.split('\n');

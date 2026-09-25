@@ -9,6 +9,7 @@ import { safeParse } from '../core/validation-middleware.js';
 import { getDBGpClient, resetDBGpClient, ErrorInfo } from '../core/dbgp-client.js';
 import * as fs from 'fs/promises';
 import type { McpToolResponse } from '../types/mcp-types.js';
+import { assertAllowedPath } from '../core/path-policy.js';
 
 export const AhkDebugDBGpArgsSchema = z.object({
   action: z
@@ -400,6 +401,10 @@ Analyze this error and provide:
     replacement: string
   ): Promise<McpToolResponse> {
     try {
+      if (!file.toLowerCase().endsWith('.ahk')) {
+        throw new Error('apply_fix can only modify .ahk files');
+      }
+      await assertAllowedPath(file, 'write');
       const content = await fs.readFile(file, 'utf-8');
       const lines = content.split(/\r?\n/);
 

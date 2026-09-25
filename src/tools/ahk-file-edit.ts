@@ -20,6 +20,7 @@ import {
   createFileEditElicitation,
   buildElicitationResponse,
 } from '../core/elicitation.js';
+import { assertAllowedPath } from '../core/path-policy.js';
 
 export const AhkEditArgsSchema = z.object({
   action: z.enum(['replace', 'insert', 'delete', 'append', 'prepend', 'create']).default('replace'),
@@ -382,6 +383,7 @@ export class AhkEditTool {
       if (!targetFile.toLowerCase().endsWith('.ahk')) {
         throw new Error('Can only edit .ahk files');
       }
+      await assertAllowedPath(targetFile, 'write');
 
       // Read the current content
       let currentContent: string;

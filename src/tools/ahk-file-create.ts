@@ -11,6 +11,7 @@ import { safeParse } from '../core/validation-middleware.js';
 import type { McpToolResponse } from '../types/mcp-types.js';
 import { setLastEditedFile } from '../core/config.js';
 import { openFileInVSCode } from '../utils/vscode-open.js';
+import { assertAllowedPath } from '../core/path-policy.js';
 
 const UTF8_ENCODING = 'utf8';
 
@@ -139,6 +140,7 @@ export class AhkFileCreateTool {
       if (!resolvedPath.toLowerCase().endsWith('.ahk')) {
         throw new Error('Target file must have a .ahk extension.');
       }
+      await assertAllowedPath(resolvedPath, 'write');
 
       const directoryPath = path.dirname(resolvedPath);
       const directoryExists = await pathExists(directoryPath);
