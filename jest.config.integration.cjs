@@ -20,6 +20,7 @@ module.exports = {
   testTimeout: 120000, // 2 minutes for integration tests
   verbose: true,
   moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@tests/(.*)$': '<rootDir>/Tests/$1'
   },

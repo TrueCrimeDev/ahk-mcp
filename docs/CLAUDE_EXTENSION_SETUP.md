@@ -63,7 +63,7 @@ Features: Red/white color scheme, keyboard/automation theme, modern flat design,
 **Save as:**
 
 ```
-C:\Users\uphol\Documents\Design\Coding\ahk-mcp\extension\icon.png
+C:\\Users\\YourUsername\Documents\Design\Coding\ahk-mcp\extension\icon.png
 ```
 
 **Temporary Placeholder:** If you don't have an icon yet, copy any PNG:
@@ -80,7 +80,7 @@ copy C:\Windows\System32\@WindowsAnimationLogo.png extension\icon.png
 The manifest lives at:
 
 ```
-C:\Users\uphol\Documents\Design\Coding\ahk-mcp\extension\manifest.json
+C:\\Users\\YourUsername\Documents\Design\Coding\ahk-mcp\extension\manifest.json
 ```
 
 If you only see `manifest.json.disabled`, rename it to `manifest.json` or let
@@ -123,7 +123,7 @@ ahk-mcp/
 **Verify structure:**
 
 ```bash
-cd C:\Users\uphol\Documents\Design\Coding\ahk-mcp
+cd C:\\Users\\YourUsername\Documents\Design\Coding\ahk-mcp
 
 # Check files exist
 ls extension/manifest.json
@@ -141,8 +141,8 @@ ls package.json
 Copy the required files to Claude Extensions folder:
 
 ```powershell
-$src = "C:\Users\uphol\Documents\Design\Coding\ahk-mcp"
-$dest = "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
+$src = "C:\\Users\\YourUsername\Documents\Design\Coding\ahk-mcp"
+$dest = "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
 
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 Copy-Item "$src\extension\manifest.json" "$dest\manifest.json" -Force
@@ -168,7 +168,7 @@ Copy-Item "$src\docs" "$dest\docs" -Recurse -Force -ErrorAction SilentlyContinue
 For cleaner installation:
 
 ```bash
-cd C:\Users\uphol\Documents\Design\Coding\ahk-mcp
+cd C:\\Users\\YourUsername\Documents\Design\Coding\ahk-mcp
 
 # Create extension directory
 mkdir extension-package
@@ -187,7 +187,7 @@ npm ci --only=production
 
 # Copy to Claude Extensions
 cd ..
-xcopy /E /I extension-package "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
+xcopy /E /I extension-package "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
 ```
 
 ---
@@ -197,7 +197,7 @@ xcopy /E /I extension-package "C:\Users\uphol\AppData\Roaming\Claude\Claude Exte
 Claude Extensions need metadata for updates:
 
 ```bash
-cd "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
+cd "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
 
 # Create metadata file
 cat > _update_metadata.json << 'EOF'
@@ -214,7 +214,7 @@ EOF
 Or use PowerShell:
 
 ```powershell
-$extensionDir = "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
+$extensionDir = "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
 $manifest = Get-Content "$extensionDir\manifest.json" | ConvertFrom-Json
 $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
@@ -273,7 +273,7 @@ account, not just installed locally.
 **Check extension directory:**
 
 ```bash
-ls "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
+ls "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
 
 # Should see:
 # - manifest.json
@@ -287,14 +287,14 @@ ls "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
 **Check manifest validation:**
 
 ```bash
-cd "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
+cd "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
 node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json')))"
 ```
 
 **Check Claude logs:**
 
 ```
-C:\Users\uphol\AppData\Roaming\Claude\logs\
+C:\\Users\\YourUsername\AppData\Roaming\Claude\logs\
 ```
 
 Look for errors mentioning "ahk-mcp" or "extension".
@@ -304,7 +304,7 @@ Look for errors mentioning "ahk-mcp" or "extension".
 **Check dist/index.js has shebang:**
 
 ```bash
-head -1 "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp\dist\index.js"
+head -1 "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp\dist\index.js"
 
 # Should output:
 #!/usr/bin/env node
@@ -331,7 +331,7 @@ npm run build
 Extensions need their own node_modules:
 
 ```bash
-cd "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
+cd "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
 npm ci --only=production
 ```
 
@@ -341,8 +341,8 @@ npm ci --only=production
 
 ```bash
 # PowerShell (Admin)
-$src = "C:\Users\uphol\Documents\Design\Coding\ahk-mcp"
-$dest = "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
+$src = "C:\\Users\\YourUsername\Documents\Design\Coding\ahk-mcp"
+$dest = "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
 Copy-Item "$src\extension\manifest.json" "$dest\manifest.json" -Force
 Copy-Item "$src\extension\icon.png" "$dest\icon.png" -Force -ErrorAction SilentlyContinue
 Copy-Item "$src\package.json" "$dest\package.json" -Force
@@ -362,11 +362,11 @@ When you update your MCP server:
 # (edit your TypeScript files)
 
 # 2. Rebuild
-cd C:\Users\uphol\Documents\Design\Coding\ahk-mcp
+cd C:\\Users\\YourUsername\Documents\Design\Coding\ahk-mcp
 npm run build
 
 # 3. Copy updated dist/ to extension
-xcopy /E /Y /I dist "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp\dist"
+xcopy /E /Y /I dist "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp\dist"
 
 # 4. Restart Claude Desktop
 # (Quit and reopen)
@@ -381,8 +381,8 @@ Create `update-extension.ps1`:
 npm run build
 
 # Copy to extension directory
-$src = "C:\Users\uphol\Documents\Design\Coding\ahk-mcp"
-$dest = "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
+$src = "C:\\Users\\YourUsername\Documents\Design\Coding\ahk-mcp"
+$dest = "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
 
 Copy-Item "$src\dist" "$dest\dist" -Recurse -Force
 Copy-Item "$src\extension\manifest.json" "$dest\manifest.json" -Force
@@ -514,19 +514,19 @@ Users can configure your extension via Claude settings:
 **Development:**
 
 ```
-C:\Users\uphol\Documents\Design\Coding\ahk-mcp\
+C:\\Users\\YourUsername\Documents\Design\Coding\ahk-mcp\
 ```
 
 **Extension:**
 
 ```
-C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp\
+C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp\
 ```
 
 **Desktop Config:**
 
 ```
-C:\Users\uphol\AppData\Roaming\Claude\claude_desktop_config.json
+C:\\Users\\YourUsername\AppData\Roaming\Claude\claude_desktop_config.json
 ```
 
 ### Key Commands
@@ -542,7 +542,7 @@ xcopy /E /I /Y "src" "dest"
 # File → Quit → Reopen
 
 # Verify installation
-ls "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp\manifest.json"
+ls "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp\manifest.json"
 ```
 
 ---
@@ -555,8 +555,8 @@ Save as `extension/install-extension.ps1`:
 #!/usr/bin/env pwsh
 
 # Configuration
-$projectDir = "C:\Users\uphol\Documents\Design\Coding\ahk-mcp"
-$extensionDir = "C:\Users\uphol\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
+$projectDir = "C:\\Users\\YourUsername\Documents\Design\Coding\ahk-mcp"
+$extensionDir = "C:\\Users\\YourUsername\AppData\Roaming\Claude\Claude Extensions\ahk-mcp"
 
 Write-Host "Building AHK MCP Extension..." -ForegroundColor Cyan
 
@@ -646,3 +646,5 @@ Write-Host "4. Test tools in Claude chat"
 ---
 
 _Last Updated: October 20, 2025_ _Extension Format: dxt_version 0.1_
+
+

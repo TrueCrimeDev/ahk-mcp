@@ -566,8 +566,10 @@ export function detectFilePaths(text: string): string[] {
     paths.push(...drivePaths);
   }
 
-  // Pattern 3: Relative paths
-  const relativePaths = text.match(/(?:^|\s)(?:\.\/|\.\.\/|[^\s"']+\/)*[^\s"']+\.ahk/gi);
+  // Pattern 3: Relative paths. Each segment excludes '/' and is terminated by
+  // a literal '/', so the repetition is unambiguous and backtracking stays
+  // linear ('.' and '..' are ordinary segments, covering ./ and ../ prefixes).
+  const relativePaths = text.match(/(?:^|\s)(?:[^\s"'/]+\/)*[^\s"'/]+\.ahk/gi);
   if (relativePaths) {
     paths.push(...relativePaths.map(p => p.trim()));
   }

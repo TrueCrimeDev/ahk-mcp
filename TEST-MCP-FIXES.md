@@ -9,7 +9,7 @@ After restarting Claude Desktop, run these tests in order:
 **Trigger a file-exists error:**
 
 ```
-Create a new file at C:\Users\uphol\Documents\Design\Coding\AHK\!Running\test-mcp-fixes.ahk
+Create a new file at C:\\Users\\YourUsername\Documents\Design\Coding\AHK\!Running\test-mcp-fixes.ahk
 ```
 
 **Expected:** Error message should render with proper line breaks:
@@ -28,7 +28,7 @@ Create a new file at C:\Users\uphol\Documents\Design\Coding\AHK\!Running\test-mc
 **Run lint:**
 
 ```
-Lint C:\Users\uphol\Documents\Design\Coding\AHK\!Running\test-mcp-fixes.ahk
+Lint C:\\Users\\YourUsername\Documents\Design\Coding\AHK\!Running\test-mcp-fixes.ahk
 ```
 
 **Expected:** Should complete without "Invalid regular expression: /\b?\b/gi:
@@ -44,7 +44,7 @@ Nothing to repeat" error.
 
 ```json
 {
-  "filePath": "C:\\Users\\uphol\\Documents\\Design\\Coding\\AHK\\!Running\\test-mcp-fixes.ahk",
+  "filePath": "C:\\Users\\YourUsername\\Documents\\Design\\Coding\\AHK\\!Running\\test-mcp-fixes.ahk",
   "autoFix": false,
   "runAfterFix": true
 }
@@ -66,7 +66,7 @@ Nothing to repeat" error.
 
 ```json
 {
-  "filePath": "C:\\Users\\uphol\\Documents\\Design\\Coding\\AHK\\!Running\\test-mcp-fixes.ahk",
+  "filePath": "C:\\Users\\YourUsername\\Documents\\Design\\Coding\\AHK\\!Running\\test-mcp-fixes.ahk",
   "autoFix": false,
   "runAfterFix": false
 }
@@ -86,18 +86,18 @@ Copy-paste these into Claude Desktop:
 ### Test lint regex:
 
 > Lint the file at
-> C:\Users\uphol\Documents\Design\Coding\AHK\!Running\test-mcp-fixes.ahk
+> C:\\Users\\YourUsername\Documents\Design\Coding\AHK\!Running\test-mcp-fixes.ahk
 
 ### Test crash detection:
 
 > Run AHK_Workflow_Analyze_Fix_Run on
-> C:\Users\uphol\Documents\Design\Coding\AHK\!Running\test-mcp-fixes.ahk with
+> C:\\Users\\YourUsername\Documents\Design\Coding\AHK\!Running\test-mcp-fixes.ahk with
 > runAfterFix true
 
 ### Test error formatting:
 
 > Use AHK_File_Create to create
-> C:\Users\uphol\Documents\Design\Coding\AHK\!Running\test-mcp-fixes.ahk (should
+> C:\\Users\\YourUsername\Documents\Design\Coding\AHK\!Running\test-mcp-fixes.ahk (should
 > error since it exists)
 
 ---
@@ -107,5 +107,7 @@ Copy-paste these into Claude Desktop:
 After testing, delete the test file:
 
 ```
-del C:\Users\uphol\Documents\Design\Coding\AHK\!Running\test-mcp-fixes.ahk
+del C:\\Users\\YourUsername\Documents\Design\Coding\AHK\!Running\test-mcp-fixes.ahk
 ```
+
+

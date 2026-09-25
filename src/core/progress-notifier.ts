@@ -3,7 +3,6 @@
  * @see https://spec.modelcontextprotocol.io/2024-11-05/server/utilities/progress/
  */
 
-import type { Server } from '@modelcontextprotocol/server';
 import logger from '../logger.js';
 
 export interface ProgressInfo {
@@ -37,34 +36,52 @@ export function extractProgressToken(request: unknown): string | number | undefi
   return undefined;
 }
 
+export interface ProgressNotification {
+  method: 'notifications/progress';
+  params: {
+    progressToken: string | number;
+    progress: number;
+    total?: number;
+    message?: string;
+  };
+}
+
+export type ProgressSender = (notification: ProgressNotification) => Promise<void>;
+
 /**
- * Progress notification helper for long-running operations
+ * Progress notification helper for long-running operations.
+ *
+ * Senders are registered per progressToken by the tools/call handler, so
+ * notifications reach the session that issued the request even when the
+ * process serves multiple sessions.
  */
 export class ProgressNotifier {
-  private server: Server | null;
-
-  constructor(server: Server | null = null) {
-    this.server = server;
-  }
+  private senders = new Map<string | number, ProgressSender>();
 
   /**
-   * Initialize with MCP server instance
+   * Register the sender for a client-supplied progressToken.
+   * Call unregister once the request (or its task) finishes.
    */
-  setServer(server: Server): void {
-    this.server = server;
+  register(progressToken: string | number, sender: ProgressSender): void {
+    this.senders.set(progressToken, sender);
+  }
+
+  unregister(progressToken: string | number): void {
+    this.senders.delete(progressToken);
   }
 
   /**
    * Send a progress notification to the client
    */
   async notify(progressToken: string | number, info: ProgressInfo): Promise<void> {
-    if (!this.server) {
-      logger.debug('ProgressNotifier: No server set, skipping notification');
+    const send = this.senders.get(progressToken);
+    if (!send) {
+      logger.debug('ProgressNotifier: No sender registered for token, skipping notification');
       return;
     }
 
     try {
-      await this.server.notification({
+      await send({
         method: 'notifications/progress',
         params: {
           progressToken,

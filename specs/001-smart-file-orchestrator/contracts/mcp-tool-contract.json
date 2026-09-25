@@ -21,7 +21,7 @@
         "description": "Optional: Direct path to AHK file (skips detection if provided)",
         "pattern": "\\.ahk$",
         "examples": [
-          "C:\\Users\\uphol\\Documents\\Design\\Coding\\AHK\\!Running\\__Lists.ahk"
+          "C:\\Users\\YourUsername\\Documents\\Design\\Coding\\AHK\\!Running\\__Lists.ahk"
         ]
       },
       "targetEntity": {
@@ -160,3 +160,5 @@
     }
   }
 }
+
+

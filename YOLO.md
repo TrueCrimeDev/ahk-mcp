@@ -11,7 +11,7 @@ Backup of Claude Code settings with all AHK MCP tools auto-approved.
     "ahk-server": {
       "command": "C:\\Program Files\\nodejs\\node.exe",
       "args": [
-        "C:\\Users\\uphol\\Documents\\Design\\Coding\\ahk-mcp\\dist\\index.js"
+        "C:\\Users\\YourUsername\\Documents\\Design\\Coding\\ahk-mcp\\dist\\index.js"
       ],
       "env": {
         "NODE_ENV": "production",
@@ -80,3 +80,5 @@ Backup of Claude Code settings with all AHK MCP tools auto-approved.
 ---
 
 _Generated: 2026-01-11_
+
+

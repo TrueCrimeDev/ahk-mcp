@@ -8,6 +8,7 @@ import logger from '../logger.js';
 import { activeFile, autoDetect } from '../core/active-file.js';
 import { safeParse } from '../core/validation-middleware.js';
 import type { McpToolResponse } from '../types/mcp-types.js';
+import { progressNotifier, getProgressTokenFromArgs } from '../core/progress-notifier.js';
 
 export const AhkAnalyzeArgsSchema = z.object({
   code: z.string().min(1, 'AutoHotkey code is required').optional(),
@@ -85,6 +86,9 @@ Analyzes AutoHotkey v2 scripts and provides contextual information about functio
 
 export class AhkAnalyzeTool {
   async execute(args: unknown): Promise<McpToolResponse> {
+    // Extract progressToken for MCP 2025 progress notifications
+    const progressToken = getProgressTokenFromArgs(args);
+
     try {
       const parsed = safeParse(args, AhkAnalyzeArgsSchema, 'AHK_Analyze');
       if (!parsed.success) return parsed.error;
@@ -140,9 +144,18 @@ export class AhkAnalyzeTool {
         summaryOnly,
       } = validatedArgs;
 
+      // Report progress: analysis starting
+      await progressNotifier.reportIndeterminate(progressToken, 'Analyzing code structure...');
+
       // Use the new compiler system for comprehensive analysis
       const compilerResults = AhkCompiler.analyze(codeToAnalyze);
       const statistics = AhkCompiler.getStatistics(codeToAnalyze);
+
+      // Report progress: complete
+      await progressNotifier.reportComplete(
+        progressToken,
+        `Analysis complete: ${statistics.lines} lines, ${statistics.functions} functions`
+      );
 
       // If summaryOnly is true, return minimal output
       if (summaryOnly) {

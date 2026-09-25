@@ -60,6 +60,7 @@ module.exports = {
   testTimeout: 30000,
   verbose: true,
   moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@tests/(.*)$': '<rootDir>/Tests/$1'
   },

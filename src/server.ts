@@ -100,7 +100,7 @@ import './core/opentelemetry.js'; // Initialize OpenTelemetry (if enabled)
 import { tracer } from './core/tracing.js';
 import { getStandardToolDefinitions, toolSupportsTasks } from './core/tool-metadata.js';
 import type { ToolResponse } from './core/server-interface.js';
-import { extractProgressToken, ProgressNotifier } from './core/progress-notifier.js';
+import { extractProgressToken, progressNotifier } from './core/progress-notifier.js';
 import { clientRoots } from './core/client-roots.js';
 import { mountDashboard } from './dashboard.js';
 import { createStudioService } from './studio/create-studio.js';
@@ -328,17 +328,11 @@ export class AutoHotkeyMcpServer {
   }
 
   /**
-   * Setup logging handlers to prevent "Method not found" errors
+   * logging/setLevel is handled by the SDK's built-in handler (registered because the
+   * logging capability is declared), which records the per-session threshold that
+   * ctx.mcpReq.log() honors. Overriding it here would silently drop that threshold.
    */
   private setupLoggingHandlers(server: Server): void {
-    // Handle logging/setLevel requests (sent by some clients during initialization)
-    // We acknowledge the request but use our own server-side logging
-    server.setRequestHandler('logging/setLevel', async request => {
-      const level = request.params.level;
-      logger.debug(`Client requested log level: ${level} (using server-side logging)`);
-      return {};
-    });
-
     server.setNotificationHandler('notifications/cancelled', async notification => {
       logger.info(
         `Client cancelled request ${notification.params.requestId ?? 'unknown'}: ${notification.params.reason ?? 'no reason provided'}`
@@ -694,13 +688,19 @@ export class AutoHotkeyMcpServer {
       const startTime = Date.now();
       const toolTimeoutMs = envConfig.getToolTimeoutMs();
       const progressToken = extractProgressToken(params);
-      const progressNotifier = new ProgressNotifier(server);
       const previousToolNames =
         name === 'AHK_Settings'
           ? getStandardToolDefinitions()
               .filter(tool => toolSettings.isToolAvailable(tool.name))
               .map(tool => tool.name)
           : undefined;
+
+      // Route notifications/progress to the requesting client for the duration of the
+      // call; tools read the token via the injected _progressToken argument.
+      if (progressToken !== undefined) {
+        progressNotifier.register(progressToken, notification => ctx.mcpReq.notify(notification));
+      }
+      let releaseProgressToken = progressToken !== undefined;
 
       // Unified logging: generate call ID and log start
       const callId = `${name}-${startTime}-${Math.random().toString(36).slice(2, 8)}`;
@@ -767,8 +767,12 @@ export class AutoHotkeyMcpServer {
               runWithMcpRequestContextAsync(
                 { rootDirectories: requestRootDirectories, abortSignal: taskSignal },
                 () => this.executeToolWithTimeout(name, argsWithContext, taskTimeoutMs, taskSignal)
-              ),
+              ).finally(() => {
+                // The task outlives this request, so its progress sender does too.
+                if (progressToken !== undefined) progressNotifier.unregister(progressToken);
+              }),
           });
+          releaseProgressToken = false;
 
           // Unified logging: task queued (execution is async)
           unifiedLog.toolEnd(callId, {
@@ -867,6 +871,14 @@ export class AutoHotkeyMcpServer {
         // Unified logging: log error
         unifiedLog.toolError(callId, error instanceof Error ? error : new Error(String(error)));
 
+        // notifications/message, filtered by the client's logging/setLevel threshold.
+        void ctx.mcpReq
+          .log('error', {
+            tool: name,
+            message: error instanceof Error ? error.message : String(error),
+          })
+          .catch(() => undefined);
+
         // Build rich error response with metadata
         return ErrorResponseBuilder.fromError(error, ErrorCode.TOOL_EXECUTION_FAILED)
           .tool(request.params.name)
@@ -876,6 +888,10 @@ export class AutoHotkeyMcpServer {
             arguments: request.params.arguments,
           })
           .build() as unknown as CallToolResult;
+      } finally {
+        if (releaseProgressToken && progressToken !== undefined) {
+          progressNotifier.unregister(progressToken);
+        }
       }
     });
   }
