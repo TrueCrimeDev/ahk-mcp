@@ -9,7 +9,6 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const serverPath = path.join(repoRoot, 'dist', 'index.js');
 
-const defaultListDirectory = 'C:\\Users\\uphol\\Documents\\AHK';
 const missingFilePath = 'C:\\__mcp_test_should_not_exist__.ahk';
 const requestTimeoutMs = 20000;
 
@@ -171,10 +170,6 @@ function resolveListDirectory() {
   const explicit = process.env.AHK_SMOKE_DIR;
   if (explicit && explicit.trim().length > 0) {
     return explicit;
-  }
-
-  if (existsSync(defaultListDirectory)) {
-    return defaultListDirectory;
   }
 
   return repoRoot;

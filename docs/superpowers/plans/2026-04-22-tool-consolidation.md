@@ -1113,7 +1113,7 @@ git commit -m "docs: apply Use-when template to remaining tools"
 - [ ] **Step 1: Run find-and-replace as a single commit (for easy revert)**
 
 ```bash
-cd /mnt/c/Users/uphol/Documents/Design/Coding/ahk-mcp
+cd /path/to/ahk-mcp
 
 # Replace in docs/ and top-level .md files
 find docs -name "*.md" -type f -exec sed -i \

@@ -171,3 +171,8 @@ memories.md
 #                           AHK_THQBY_LSP_SERVER or thqbyLspServerPath at a real build.
 CloudAHK/
 vscode-autohotkey2-lsp/
+
+# Machine-specific client config (template: .mcp.example.json)
+.mcp.json
+.claude/settings.json
+.claude/settings.local.json

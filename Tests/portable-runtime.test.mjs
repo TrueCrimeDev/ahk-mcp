@@ -81,7 +81,7 @@ test(
       }
       const bundle = await readFile(path.join(runtime, 'dist/core/server.mjs'), 'utf8');
       assert.ok(
-        !bundle.includes('C:\\\\Users\\\\uphol'),
+        !/[A-Za-z]:\\{1,2}Users\\{1,2}[^\\'"]+\\{1,2}Documents/.test(bundle),
         'No developer-specific interpreter paths'
       );
       assert.ok(

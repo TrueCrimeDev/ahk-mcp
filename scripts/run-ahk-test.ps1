@@ -1,6 +1,6 @@
 param(
-    [string]$AhkExe = 'C:\Users\uphol\Documents\Design\Coding\AutoHotkey\bin\AutoHotkey64.exe',
-    [string]$Script = 'C:\Users\uphol\Documents\Design\Coding\ahk-mcp\Tests\manual\test-run-ok.ahk',
+    [string]$AhkExe = $(if ($env:AHK_PATH_WIN) { $env:AHK_PATH_WIN } else { 'AutoHotkey64.exe' }),
+    [string]$Script = (Join-Path $PSScriptRoot '..\Tests\manual\test-run-ok.ahk'),
     [switch]$Wait
 )
 

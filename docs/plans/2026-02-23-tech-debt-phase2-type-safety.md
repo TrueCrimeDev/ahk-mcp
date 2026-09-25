@@ -24,7 +24,7 @@ types in `src/types/tool-types.ts` and `src/types/mcp-types.ts`.
 Before starting, confirm current warning count:
 
 ```bash
-cd /mnt/c/Users/uphol/Documents/Design/Coding/ahk-mcp
+cd /path/to/ahk-mcp
 npm run lint 2>&1 | tail -3
 # Expected: ✖ 169 problems (0 errors, 169 warnings)
 ```

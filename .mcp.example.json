@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "ahk": {
+      "command": "node",
+      "args": ["/absolute/path/to/ahk-mcp/artifacts/mcp-runtime/launch.mjs"],
+      "env": {
+        "AHK_MCP_SCRIPT_DIR": "/absolute/path/to/your/ahk/scripts",
+        "AHK_MCP_ALLOWED_DIRS": "",
+        "AHK_MCP_CONFIG_DIR": "",
+        "AHK_PATH": "/absolute/path/to/AutoHotkey64.exe",
+        "AHK_PATH_WIN": "C:\\path\\to\\AutoHotkey64.exe"
+      }
+    }
+  }
+}

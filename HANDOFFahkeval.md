@@ -1,7 +1,7 @@
 # Handoff: add `AHK_Eval` + `AHK_Repl_Reset` to ahk-mcp, open a draft PR
 
 You are Claude Code running locally on the user's Windows machine, inside the
-repo `C:\Users\uphol\Documents\Design\Coding\ahk-mcp`. A previous (remote,
+this repo. A previous (remote,
 sandboxed) session implemented this feature but could not reach this machine to
 push it. This document is the complete spec — recreate the changes directly
 against the real current repo, then push and open a draft PR. Everything you

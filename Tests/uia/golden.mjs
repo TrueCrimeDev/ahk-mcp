@@ -19,10 +19,7 @@ import { fileURLToPath } from 'url';
 const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const SCRIPT = path.join(ROOT, 'inspector', 'uia_inspect.ahk');
 
-const EXE =
-  process.env.AHK_PATH ||
-  process.env.AHK_PATH_WIN ||
-  '/mnt/c/Users/uphol/Documents/Design/Coding/AutoHotkey/bin/AutoHotkey64.exe';
+const EXE = process.env.AHK_PATH || process.env.AHK_PATH_WIN || 'AutoHotkey64.exe';
 
 function toWindowsPath(p) {
   if (process.platform === 'win32') return p;

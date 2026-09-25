@@ -20,9 +20,7 @@ const server = spawn('node', [path.join(ROOT, 'dist', 'index.js')], {
   cwd: ROOT,
   env: {
     ...process.env,
-    AHK_PATH:
-      process.env.AHK_PATH ||
-      '/mnt/c/Users/uphol/Documents/Design/Coding/AutoHotkey/bin/AutoHotkey64.exe',
+    AHK_PATH: process.env.AHK_PATH || 'AutoHotkey64.exe',
   },
   stdio: ['pipe', 'pipe', 'pipe'],
 });

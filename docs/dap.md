@@ -142,7 +142,7 @@ AHK_DAP_ENABLED=1 AHK_DAP_PORT=9001 node dist/index.js
 ```
 
 ```bash
-C:\Users\uphol\Documents\Design\Coding\AutoHotkey\bin\AutoHotkey64.exe /Debug C:\path\to\your_script.ahk
+C:\path\to\AutoHotkey64.exe /Debug C:\path\to\your_script.ahk
 ```
 
 Then in VS Code / Cursor: Run and Debug → pick `AHK (DAP)` → set a breakpoint in

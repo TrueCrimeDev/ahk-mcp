@@ -16,9 +16,7 @@
  * target app; highlight draws a click-through border and nothing else.
  */
 
-process.env.AHK_PATH =
-  process.env.AHK_PATH ||
-  '/mnt/c/Users/uphol/Documents/Design/Coding/AutoHotkey/bin/AutoHotkey64.exe';
+process.env.AHK_PATH = process.env.AHK_PATH || 'AutoHotkey64.exe';
 
 const USAGE = `
 UIA inspection CLI — read-only

@@ -86,7 +86,7 @@ export async function runInspector(
     return failure(
       'AHK_NOT_FOUND',
       'Could not locate an AutoHotkey v2 interpreter.',
-      'Set AHK_PATH (WSL form) and AHK_PATH_WIN (Windows form) to the v2.1-alpha.30+Console build, as .mcp.json already does.'
+      'Set AHK_PATH (WSL form) and AHK_PATH_WIN (Windows form) to the v2.1-alpha.30+Console build in the MCP server config (see .mcp.example.json).'
     );
   }
 
@@ -159,7 +159,7 @@ export async function runInspector(
             failure(
               'AHK_VERSION_MISMATCH',
               `The interpreter at ${exe} is too old for the inspector.`,
-              `The inspector needs the v2.1-alpha.30+Console fork. Point AHK_PATH and AHK_PATH_WIN at it (.mcp.json already does for the MCP server). AutoHotkey reported: ${detail.slice(0, 300)}`
+              `The inspector needs the v2.1-alpha.30+Console fork. Point AHK_PATH and AHK_PATH_WIN at it in the MCP server config. AutoHotkey reported: ${detail.slice(0, 300)}`
             )
           );
           return;

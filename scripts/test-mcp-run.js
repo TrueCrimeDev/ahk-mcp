@@ -11,8 +11,7 @@ function nextId() {
 }
 
 async function main() {
-  const ahkExe =
-    'C:\\\\Users\\\\uphol\\\\Documents\\\\Design\\\\Coding\\\\AutoHotkey\\\\bin\\\\AutoHotkey64.exe';
+  const ahkExe = process.env.AHK_PATH_WIN || process.env.AHK_PATH || 'AutoHotkey64.exe';
   const script = path.join(repoRoot, 'Tests', 'manual', 'test-run-ok.ahk');
 
   const child = spawn('node', ['dist/index.js'], {

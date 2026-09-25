@@ -221,7 +221,7 @@ AHK_MCP_DATA_MODE=light
 PORT=3000
 
 # AutoHotkey Configuration
-AHK_PATH=C:\\Users\\uphol\\Documents\\Design\\Coding\\AutoHotkey\\bin\\AutoHotkey64.exe
+AHK_PATH=C:\\Program Files\\AutoHotkey\\v2\\AutoHotkey64.exe
 
 # Development Settings
 AHK_MCP_DEV_MODE=true
