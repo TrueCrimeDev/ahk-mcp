@@ -1,4 +1,9 @@
-import { findAutoHotkey } from './ahk-runtime.js';
+// Extensionless on purpose. Jest loads globalSetup through Node's own require
+// with the ts-jest transform hooked in, but without moduleNameMapper, so a
+// '.js' specifier never reaches ahk-runtime.ts ("Cannot find module"). The
+// transform hook registers '.ts', which lets Node resolve the bare name.
+// Tests/unit/jest-ahk-harness.test.ts runs this file for real.
+import { findAutoHotkey } from './ahk-runtime';
 
 /**
  * Global setup for `npm run test:ahk`. Suites skip themselves when AutoHotkey

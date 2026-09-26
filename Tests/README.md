@@ -45,7 +45,11 @@ transform and the `.js` specifier mapping.
   type-checks the suites separately with `Tests/setup/tsconfig.tests.json`.
   Modules that tests import must not use `import.meta` (a SyntaxError under
   CommonJS).
-- Use `.js` specifiers for relative imports, as in `src/`.
+- Use `.js` specifiers for relative imports, as in `src/`. The exception is a
+  `globalSetup`/`globalTeardown` module: Jest loads it through Node's `require`
+  without `moduleNameMapper`, so it must import `.ts` siblings extensionless
+  (`./ahk-runtime`). The type-check accepts both forms;
+  `Tests/unit/jest-ahk-harness.test.ts` runs the AHK global setup for real.
 - `Tests/setup/jest.setup.ts` only sets `NODE_ENV=test`,
   `AHK_MCP_LOG_LEVEL=error` and silences `console.log/info/debug`. There are no
   global helpers and no module mocks; import what you need.
