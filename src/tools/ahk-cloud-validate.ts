@@ -5,7 +5,7 @@
  * Supports one-shot validation and watch mode for auto-validation on save.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { spawn, exec } from 'child_process';
 import fs from 'fs/promises';
 import type { McpToolResponse } from '../types/mcp-types.js';

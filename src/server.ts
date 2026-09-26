@@ -39,10 +39,11 @@ const ALL_PROTOCOL_VERSIONS: readonly string[] = [
   ...SUPPORTED_PROTOCOL_VERSIONS,
 ];
 import { toNodeHandler } from '@modelcontextprotocol/node';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { timingSafeEqual } from 'node:crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { initializeDataLoader, getAhkIndex } from './core/loader.js';
+import { SERVER_VERSION } from './version.js';
 import logger from './logger.js';
 import { ToolRegistry } from './core/tool-registry.js';
 import { envConfig } from './core/env-config.js';
@@ -280,7 +281,7 @@ export class AutoHotkeyMcpServer {
       {
         name: 'ahk-mcp-server',
         title: 'AutoHotkey v2 MCP Server',
-        version: '2.0.0',
+        version: SERVER_VERSION,
         description:
           'AutoHotkey v2 development server for file operations, diagnostics, documentation, execution, and debugging.',
         websiteUrl: 'https://github.com/TrueCrimeDev/ahk-mcp',
@@ -1182,7 +1183,7 @@ export class AutoHotkeyMcpServer {
       serverInfo: {
         name: 'ahk-mcp-server',
         title: 'AutoHotkey v2 MCP Server',
-        version: '2.0.0',
+        version: SERVER_VERSION,
       },
       description:
         'AutoHotkey v2 development tools for analysis, file workflows, documentation, execution, and debugging.',

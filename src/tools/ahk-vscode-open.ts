@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import logger from '../logger.js';
@@ -6,7 +6,6 @@ import { getLastEditedFile } from '../core/config.js';
 import { getActiveFilePath } from '../core/active-file.js';
 import { checkToolAvailability } from '../core/tool-settings.js';
 import { safeParse } from '../core/validation-middleware.js';
-import { createToolDefinition } from '../utils/schema-generator.js';
 import { openFileInVSCode } from '../utils/vscode-open.js';
 import { ErrorResponseBuilder, ErrorCode } from '../core/error-response-builder.js';
 import type { ErrorCodeType } from '../core/error-types.js';
@@ -45,11 +44,46 @@ export const AhkVSCodeOpenArgsSchema = z.object({
   wait: z.boolean().default(false).describe('Wait for VS Code to exit'),
 });
 
-export const ahkVSCodeOpenToolDefinition = createToolDefinition(
-  'AHK_VSCode_Open',
-  'Open the most recently edited AutoHotkey file (or a specified file) in VS Code. Defaults to the last edited file recorded by MCP and falls back to the active file.',
-  AhkVSCodeOpenArgsSchema
-);
+// inputSchema is the frozen zod-to-json-schema output of AhkVSCodeOpenArgsSchema; edit both together.
+export const ahkVSCodeOpenToolDefinition = {
+  name: 'AHK_VSCode_Open',
+  description:
+    'Open the most recently edited AutoHotkey file (or a specified file) in VS Code. Defaults to the last edited file recorded by MCP and falls back to the active file.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      filePath: {
+        type: 'string',
+        description: 'File path to open (defaults to last edited file, then active file)',
+      },
+      path: {
+        type: 'string',
+        description: 'Deprecated alias for filePath (accepted for backward compatibility)',
+      },
+      line: {
+        type: 'integer',
+        minimum: 1,
+        description: 'Line number to reveal (1-based)',
+      },
+      column: {
+        type: 'integer',
+        minimum: 1,
+        description: 'Column number to reveal (1-based)',
+      },
+      reuseWindow: {
+        type: 'boolean',
+        default: true,
+        description: 'Reuse the existing VS Code window',
+      },
+      wait: {
+        type: 'boolean',
+        default: false,
+        description: 'Wait for VS Code to exit',
+      },
+    },
+    additionalProperties: false,
+  },
+};
 
 export class AhkVSCodeOpenTool {
   async execute(rawArgs: unknown): Promise<McpToolResponse> {

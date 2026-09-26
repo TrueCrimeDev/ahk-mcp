@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,7 +6,6 @@ import logger from '../logger.js';
 import { getActiveFilePath } from '../core/active-file.js';
 import { checkToolAvailability } from '../core/tool-settings.js';
 import { safeParse } from '../core/validation-middleware.js';
-import { createToolDefinition } from '../utils/schema-generator.js';
 import { AhkRunTool } from './ahk-run-script.js';
 import { ErrorResponseBuilder, ErrorCode } from '../core/error-response-builder.js';
 import type { ErrorCodeType } from '../core/error-types.js';
@@ -63,11 +62,101 @@ export const AhkTestInteractiveArgsSchema = z.object({
   keepTempFile: z.boolean().default(false).describe('Keep temporary file when using inline code'),
 });
 
-export const ahkTestInteractiveToolDefinition = createToolDefinition(
-  'AHK_Test_Interactive',
-  'Run an AutoHotkey script for interactive/manual verification. Supports file path, active-file fallback, or inline code (temp script). Returns execution output plus a PASS/FAIL checklist.',
-  AhkTestInteractiveArgsSchema
-);
+// inputSchema is the frozen zod-to-json-schema output of AhkTestInteractiveArgsSchema; edit both together.
+export const ahkTestInteractiveToolDefinition = {
+  name: 'AHK_Test_Interactive',
+  description:
+    'Run an AutoHotkey script for interactive/manual verification. Supports file path, active-file fallback, or inline code (temp script). Returns execution output plus a PASS/FAIL checklist.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      filePath: {
+        type: 'string',
+        description: 'Path to .ahk script to test',
+      },
+      path: {
+        type: 'string',
+        description: 'Deprecated alias for filePath (accepted for backward compatibility)',
+      },
+      scriptPath: {
+        type: 'string',
+        description: 'Deprecated alias for filePath (accepted for backward compatibility)',
+      },
+      code: {
+        type: 'string',
+        description: 'Inline AHK v2 code to test. A temporary .ahk file is created when provided.',
+      },
+      mode: {
+        type: 'string',
+        enum: ['run', 'guide'],
+        default: 'run',
+        description:
+          'run = execute script and return interactive checklist, guide = checklist only',
+      },
+      testName: {
+        type: 'string',
+        default: 'Interactive Test',
+        description: 'Human-readable test label',
+      },
+      expectedBehavior: {
+        type: 'string',
+        description: 'What should happen when the script runs successfully',
+      },
+      wait: {
+        type: 'boolean',
+        default: true,
+        description: 'Wait for script execution to finish',
+      },
+      timeout: {
+        type: 'integer',
+        minimum: 1000,
+        maximum: 300000,
+        default: 30000,
+        description: 'Timeout in ms',
+      },
+      runner: {
+        type: 'string',
+        enum: ['native', 'powershell'],
+        default: 'native',
+        description: 'Runner for AHK_Run',
+      },
+      scriptArgs: {
+        type: 'array',
+        items: {
+          type: 'string',
+        },
+        default: [],
+        description: 'Script arguments forwarded to AHK_Run',
+      },
+      detectWindow: {
+        type: 'boolean',
+        default: true,
+        description: 'Enable window detection while running',
+      },
+      windowDetectTimeout: {
+        type: 'integer',
+        minimum: 500,
+        maximum: 60000,
+        default: 5000,
+        description: 'Window detection timeout in ms',
+      },
+      windowTitle: {
+        type: 'string',
+        description: 'Optional expected window title pattern',
+      },
+      windowClass: {
+        type: 'string',
+        description: 'Optional expected window class pattern',
+      },
+      keepTempFile: {
+        type: 'boolean',
+        default: false,
+        description: 'Keep temporary file when using inline code',
+      },
+    },
+    additionalProperties: false,
+  },
+};
 
 export class AhkTestInteractiveTool {
   private runTool: AhkRunTool;

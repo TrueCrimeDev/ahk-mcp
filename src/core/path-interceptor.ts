@@ -1,5 +1,5 @@
 import { PathConverter, PathFormat, PathConversionResult } from '../utils/path-converter.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import logger from '../logger.js';
 
 /**

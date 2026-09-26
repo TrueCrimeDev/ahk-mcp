@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { PathFormat, DriveMapping } from '../utils/path-converter.js';
 import { ToolPathConfig } from './path-interceptor.js';
 import * as fs from 'fs/promises';

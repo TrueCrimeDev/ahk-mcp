@@ -6,7 +6,7 @@
  * verifying the mtime-keyed LRU cache is behaving as expected.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { checkCache } from '../core/check-cache.js';
 import { safeParse } from '../core/validation-middleware.js';
 import type { McpToolResponse } from '../types/mcp-types.js';

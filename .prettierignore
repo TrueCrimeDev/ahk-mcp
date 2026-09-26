@@ -1,4 +1,12 @@
 node_modules/
 dist/
+coverage/
+logs/
+artifacts/
 CloudAHK/
 vscode-autohotkey2-lsp/
+
+# Local agent and editor state, including a nested git worktree
+.history/
+.kilo/
+.superpowers/

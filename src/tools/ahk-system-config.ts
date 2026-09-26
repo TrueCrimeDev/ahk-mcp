@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import fs from 'node:fs';
 import logger from '../logger.js';
 import { loadConfig, saveConfig, normalizeDir } from '../core/config.js';

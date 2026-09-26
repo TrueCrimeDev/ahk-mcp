@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import fs from 'fs/promises';
 import type { Stats } from 'fs';
 import path from 'path';

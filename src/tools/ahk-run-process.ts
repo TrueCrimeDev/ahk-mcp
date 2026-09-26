@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import fs from 'fs/promises';
 import logger from '../logger.js';
 import { detectFilePaths, resolveFilePath } from '../core/config.js';

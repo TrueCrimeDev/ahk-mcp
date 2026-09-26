@@ -10,7 +10,7 @@
  * -> uia_highlight to confirm the selector grabbed the right control.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { safeParse } from '../core/validation-middleware.js';
 import { runInspector, type UiaResponse } from '../core/uia-inspector.js';
 import { createErrorResponse } from '../utils/response-helpers.js';

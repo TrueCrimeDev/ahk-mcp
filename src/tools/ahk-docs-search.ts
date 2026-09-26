@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import FlexSearch from 'flexsearch';
 import { getAhkIndex, getAhkDocumentationFull } from '../core/loader.js';
 import logger from '../logger.js';

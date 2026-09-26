@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { spawn, exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';

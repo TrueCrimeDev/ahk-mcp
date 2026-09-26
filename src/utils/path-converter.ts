@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /**
  * Path format types for cross-platform compatibility
