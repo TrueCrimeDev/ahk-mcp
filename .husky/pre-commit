@@ -1,21 +1,14 @@
-echo "🔍 Running pre-commit checks..."
+# Pre-commit: formatting of staged files, then a full type check.
+# Unit tests (npm test) run in CI on every push and pull request.
 
-# Run lint-staged
-echo "📝 Running lint-staged..."
-
-# Prefer local install, but still works via npx if needed
 # --config pins lint-staged to this repo's config. Without it, lint-staged v16
-# discovers per-directory configs shipped inside node_modules packages and runs
-# their tasks over vendored files, which SIGKILLs when node_modules is staged
-# (this repo vendors node_modules).
+# also discovers per-directory configs shipped inside node_modules packages.
 npx lint-staged --config .lintstagedrc.cjs
 
-# Run type checking
-echo "🔷 Running TypeScript type checking..."
 npm run check:types
 
-
-# NOTE: Unit tests are currently failing in this repository; keep pre-commit lightweight.
-# Run tests in CI or manually via: npm run test:unit
-
-echo "✅ All pre-commit checks passed!"
+# Privacy scan, when this machine has a local denylist (see Tests/README.md).
+# The list itself is never committed.
+if [ -n "$AHK_MCP_PRIVACY_DENYLIST" ] || [ -n "$AHK_MCP_PRIVACY_DENYLIST_FILE" ]; then
+  node scripts/check-privacy.mjs
+fi

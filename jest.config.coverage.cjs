@@ -1,73 +1,21 @@
 /**
- * Jest Configuration - Coverage Analysis
- * Runs all tests with coverage reporting
- * Use: npm run test:coverage
+ * Jest config for `npm run test:coverage`: the unit and contract suites of
+ * jest.config.cjs (same quarantine list) with coverage collection on.
  *
- * This configuration enforces coverage thresholds and generates reports
+ * No global threshold yet: most of src/ is v2 code that the v3 packages
+ * replace. The design gates at least 85% lines on src/tooling, src/core/fs,
+ * src/core/path-policy.ts and the edit engine; add each path to
+ * coverageThreshold when the package that creates it lands (Jest fails on a
+ * threshold path that matches no file).
  */
+'use strict';
+
+const unit = require('./jest.config.cjs');
+
 /** @type {import('jest').Config} */
 module.exports = {
-  preset: 'ts-jest',
-  testEnvironment: 'node',
-  roots: ['<rootDir>/src', '<rootDir>/Tests'],
-  testMatch: [
-    '<rootDir>/Tests/unit/**/*.test.ts',
-    '<rootDir>/Tests/contract/**/*.test.ts'
-    // Note: Integration tests excluded from coverage to keep reports focused
-  ],
-  transform: {
-    '^.+\\.ts$': 'ts-jest',
-  },
-  collectCoverageFrom: [
-    'src/**/*.ts',
-    '!src/**/*.d.ts',
-    '!src/index.ts',
-    '!src/**/__mocks__/**',
-    '!src/types/**',
-    '!src/**/*.interface.ts'
-  ],
-  coverageDirectory: 'coverage',
-  coverageReporters: [
-    'text',
-    'text-summary',
-    'lcov',
-    'html',
-    'json-summary',
-    'json'
-  ],
-  coverageThreshold: {
-    global: {
-      branches: 75,
-      functions: 80,
-      lines: 80,
-      statements: 80
-    },
-    // Per-file thresholds for critical files
-    './src/core/**/*.ts': {
-      branches: 85,
-      functions: 85,
-      lines: 85,
-      statements: 85
-    },
-    './src/tools/**/*.ts': {
-      branches: 70,
-      functions: 75,
-      lines: 75,
-      statements: 75
-    }
-  },
-  setupFilesAfterEnv: ['<rootDir>/Tests/setup/jest.setup.ts'],
-  testTimeout: 30000,
-  verbose: true,
-  moduleNameMapper: {
-    '^(\\.{1,2}/.*)\\.js$': '$1',
-    '^@/(.*)$': '<rootDir>/src/$1',
-    '^@tests/(.*)$': '<rootDir>/Tests/$1'
-  },
-  moduleFileExtensions: ['ts', 'js', 'json'],
-  collectCoverage: true, // Enable coverage collection
-  watchPlugins: [
-    'jest-watch-typeahead/filename',
-    'jest-watch-typeahead/testname'
-  ]
+  ...unit,
+  collectCoverage: true,
+  coverageReporters: ['text-summary', 'lcov', 'json-summary'],
+  coverageThreshold: {},
 };

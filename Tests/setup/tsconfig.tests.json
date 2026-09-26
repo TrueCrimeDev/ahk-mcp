@@ -1,0 +1,29 @@
+{
+  // Type-checks the test suites, which ts-jest transpiles without checking
+  // (isolatedModules). Run: node node_modules/typescript/bin/tsc -p Tests/setup/tsconfig.tests.json
+  // Bundler resolution accepts both '.js' and extensionless relative imports,
+  // as Jest's moduleNameMapper does.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "../..",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["node", "jest"]
+  },
+  "include": ["../**/*.ts"],
+  // Keep in sync with the quarantine lists in jest.config.cjs and
+  // jest.config.integration.cjs.
+  "exclude": [
+    "../contract/dry-run-output.test.ts",
+    "../contract/parameter-aliases.test.ts",
+    "../unit/dry-run-preview.test.ts",
+    "../unit/parameter-aliases.test.ts",
+    "../unit/dependency-resolver.test.ts",
+    "../unit/library-catalog.test.ts",
+    "../unit/library-scanner.test.ts",
+    "../unit/metadata-extractor.test.ts",
+    "../integration/backward-compat.test.ts",
+    "../integration/edit-dryrun.test.ts"
+  ]
+}

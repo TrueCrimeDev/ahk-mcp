@@ -1,185 +1,94 @@
-name: Security and Dependency Management
+name: Security
 
 on:
   schedule:
-    # Run daily at 2 AM UTC
-    - cron: "0 2 * * *"
+    - cron: "0 2 * * *" # daily, to pick up newly published advisories
   push:
-    branches: [master, main, develop]
+    branches: [master, "feat/**"]
   pull_request:
-    branches: [master, main]
+    branches: [master, "feat/**"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  security-audit:
-    name: Security Audit
+  npm-audit:
+    name: npm audit
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: 22
 
-      - name: Install dependencies
-        run: npm ci
+      # npm audit reads package-lock.json; no install needed.
+      - name: Runtime dependencies (high and above fail)
+        run: npm audit --omit=dev --audit-level=high
 
-      - name: Run npm audit
+      - name: All dependencies (report only)
         run: npm audit --audit-level=moderate
         continue-on-error: true
 
-      - name: Run Snyk security scan
-        uses: snyk/actions/node@master
-        continue-on-error: true
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --severity-threshold=high
+  license-check:
+    name: License check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
 
-  codeql-analysis:
-    name: CodeQL Analysis
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - name: Allowed licenses only
+        run: >-
+          npx --yes license-checker@25.0.1 --summary --onlyAllow
+          'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Python-2.0;CC-BY-4.0;CC0-1.0;BlueOak-1.0.0'
+
+  codeql:
+    name: CodeQL
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
       security-events: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        language: ["javascript"]
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
-          languages: ${{ matrix.language }}
+          languages: javascript-typescript
+          build-mode: none
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
-          category: "/language:${{matrix.language}}"
+          category: /language:javascript-typescript
 
   dependency-review:
-    name: Dependency Review
+    name: Dependency review
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-
-    permissions:
-      contents: read
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Dependency Review
-        uses: actions/dependency-review-action@v4
-        continue-on-error: true
+      - uses: actions/dependency-review-action@v5.0.0
         with:
           fail-on-severity: moderate
 
-  license-check:
-    name: License Check
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Check licenses
-        run: |
-          npx license-checker --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Python-2.0;CC-BY-4.0;BlueOak-1.0.0'
-
   secret-scan:
-    name: Secret Scan
+    name: Secret scan
     runs-on: ubuntu-latest
-
+    if: github.event_name != 'schedule'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Run TruffleHog OSS
-        uses: trufflesecurity/trufflehog@main
+      # Without base/head the action scans the commits of this push or PR.
+      - uses: trufflesecurity/trufflehog@v3.97.9
         with:
-          path: ./
-          base: main
-          head: HEAD
-          extra_args: --debug --only-verified
-
-  update-dependencies:
-    name: Update Dependencies
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Configure Git
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
-      - name: Update dependencies
-        run: |
-          npm update
-          npm audit fix --audit-level=moderate
-
-      - name: Validate dependency audit
-        run: npm audit --audit-level=moderate
-
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: update dependencies"
-          title: "chore: update dependencies"
-          body: |
-            ## Dependency Updates
-
-            This PR updates project dependencies to their latest versions.
-
-            ### Changes
-            - Updated npm dependencies
-            - Fixed any moderate security vulnerabilities
-            - All tests are passing
-
-            ### Checklist
-            - [ ] All tests pass
-            - [ ] No breaking changes introduced
-            - [ ] Documentation updated if needed
-
-            ---
-
-            *This PR was created automatically by the dependency update workflow.*
-          branch: chore/update-dependencies
-          delete-branch: true
+          extra_args: --only-verified
