@@ -19,7 +19,8 @@
  *     listing the roots, and the handler never runs;
  *  5. required capabilities (AutoHotkey runtime or fork); a missing one is
  *     isError UNAVAILABLE with the configuration fix;
- *  6. the resolveInputs hook (multi-round-trip); new paths are gated again;
+ *  6. the resolveInputs hook (multi-round-trip); the arguments it returns are
+ *     validated and path-gated again, like the originals;
  *  7. concurrency guard (named caps, per-path locks);
  *  8. the handler, under one AbortSignal combining client cancel, task cancel
  *     and the per-tool timeout; a thrown error becomes one formatted isError;
@@ -37,7 +38,6 @@ import {
   isInputRequiredResult,
   type CallToolRequestParams,
   type CallToolResult,
-  type InputRequiredResult,
   type ListToolsResult,
   type Server,
   type ServerContext,
@@ -489,20 +489,25 @@ export class ToolRegistry {
       });
 
     if (tool.resolveInputs) {
-      const resolved: Record<string, unknown> | InputRequiredResult = await tool.resolveInputs(
-        args,
-        ctx()
-      );
+      const resolved: unknown = await tool.resolveInputs(args, ctx());
       if (isInputRequiredResult(resolved)) {
         return { result: resolved as unknown as CallToolResult, ok: true, interim: true };
       }
-      if (resolved !== args) {
-        // Values filled in from input responses come from the client: gate them like any argument.
-        gate = await resolvePathArgs(tool.pathArgs, resolved);
-        if (!gate.ok) return failure(new ToolError(gate.error.code, gate.error.message));
-        args = gate.args;
-        paths = gate.paths;
+      if (resolved === null || typeof resolved !== 'object' || Array.isArray(resolved)) {
+        throw new Error(
+          `resolveInputs of '${tool.name}' returned neither arguments nor an input_required result`
+        );
       }
+      // Values filled in from input responses come from the client, so everything
+      // the hook returns is validated and gated again, whether it built a new
+      // object or wrote into `args` in place. The gate is idempotent for the
+      // canonical paths already there.
+      const reparsed = tool.input.safeParse(resolved);
+      if (!reparsed.success) return failure(invalidArguments(tool, reparsed.error, resolved));
+      gate = await resolvePathArgs(tool.pathArgs, reparsed.data as Record<string, unknown>);
+      if (!gate.ok) return failure(new ToolError(gate.error.code, gate.error.message));
+      args = gate.args;
+      paths = gate.paths;
     }
     return { args, ctx: ctx() };
   }

@@ -212,9 +212,31 @@ describe('defineTool', () => {
       { input: z.strictObject({ at: z.date() }) },
       /JSON Schema/,
     ],
+    [
+      'resolveInputs over an input that transforms',
+      {
+        input: z.strictObject({ n: z.string().transform(s => s.length) }),
+        resolveInputs: (args: unknown) => args,
+      },
+      /resolveInputs.*transform/,
+    ],
   ])('rejects %s', (_label, overrides, message) => {
     expect(() => defineTool(spec(overrides as Partial<Spec>))).toThrow(ToolSpecError);
     expect(() => defineTool(spec(overrides as Partial<Spec>))).toThrow(message);
+  });
+
+  it('accepts resolveInputs over an input whose output parses again', () => {
+    expect(() =>
+      defineTool(
+        spec({
+          input: z.strictObject({
+            n: z.coerce.number().default(1),
+            s: z.preprocess(v => (typeof v === 'string' ? v.trim() : v), z.string()).optional(),
+          }),
+          resolveInputs: (args: Record<string, unknown>) => args,
+        })
+      )
+    ).not.toThrow();
   });
 });
 
@@ -627,6 +649,169 @@ describe('ToolRegistry.call path gate', () => {
     );
     expect(handler).not.toHaveBeenCalled();
     expect(result._meta).toEqual({ code: 'PATH_NOT_ALLOWED', retryable: false });
+  });
+
+  it('gates a path that resolveInputs writes into args in place', async () => {
+    const handler = jest.fn(() => ({ structured: { path: 'ran' } }));
+    const tool = gated({
+      // Same object back: an identity check would wrongly treat it as unchanged.
+      resolveInputs: (args: Record<string, unknown>) => {
+        args.path = path.join(outside, 'secret.ahk');
+        return args;
+      },
+      handler,
+    });
+    const result = await registry([tool]).registry.call(
+      server(),
+      { name: 'Test_Tool', arguments: {} },
+      context()
+    );
+    expect(handler).not.toHaveBeenCalled();
+    expect(result._meta).toEqual({ code: 'PATH_NOT_ALLOWED', retryable: false });
+  });
+
+  it('checks the extension of a path resolveInputs writes in place', async () => {
+    const handler = jest.fn(() => ({ structured: { path: 'ran' } }));
+    const tool = gated({
+      resolveInputs: (args: Record<string, unknown>) => {
+        args.path = path.join(allowed, 'a.txt');
+        return args;
+      },
+      handler,
+    });
+    const result = await registry([tool]).registry.call(
+      server(),
+      { name: 'Test_Tool', arguments: { path: path.join(allowed, 'a.ahk') } },
+      context()
+    );
+    expect(handler).not.toHaveBeenCalled();
+    expect(result._meta).toEqual({ code: 'INVALID_ARGUMENT', retryable: false });
+  });
+
+  it('hands the handler the canonical form of a path resolveInputs fills in', async () => {
+    let seen: { arg: unknown; ctxPath: string | undefined } | undefined;
+    const tool = gated({
+      resolveInputs: (args: Record<string, unknown>) => {
+        args.path = path.join(allowed, 'sub', '..', 'a.ahk');
+        return args;
+      },
+      handler: (args: Record<string, unknown>, ctx: ToolContext) => {
+        seen = { arg: args.path, ctxPath: ctx.paths.path };
+        return { structured: { path: String(args.path) } };
+      },
+    });
+    const result = await registry([tool]).registry.call(
+      server(),
+      { name: 'Test_Tool', arguments: {} },
+      context()
+    );
+    expect(result.isError).toBeUndefined();
+    const canonical = await fs.realpath(path.join(allowed, 'a.ahk'));
+    expect(seen).toEqual({ arg: canonical, ctxPath: canonical });
+  });
+
+  it('passes an already-gated path through resolveInputs unchanged', async () => {
+    const tool = gated({ resolveInputs: (args: Record<string, unknown>) => args });
+    const result = await registry([tool]).registry.call(
+      server(),
+      { name: 'Test_Tool', arguments: { path: path.join(allowed, 'a.ahk') } },
+      context()
+    );
+    expect(result.isError).toBeUndefined();
+    expect((result.structuredContent as { path: string }).path).toBe(
+      await fs.realpath(path.join(allowed, 'a.ahk'))
+    );
+  });
+
+  it('drops a path resolveInputs removes from ctx.paths', async () => {
+    let seen: ToolContext['paths'] | undefined;
+    const tool = gated({
+      resolveInputs: (args: Record<string, unknown>) => {
+        delete args.path;
+        return args;
+      },
+      handler: (_args: Record<string, unknown>, ctx: ToolContext) => {
+        seen = ctx.paths;
+        return { structured: { path: 'none' } };
+      },
+    });
+    const result = await registry([tool]).registry.call(
+      server(),
+      { name: 'Test_Tool', arguments: { path: path.join(allowed, 'a.ahk') } },
+      context()
+    );
+    expect(result.isError).toBeUndefined();
+    expect(seen).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveInputs output validation
+// ---------------------------------------------------------------------------
+
+describe('ToolRegistry.call resolveInputs validation', () => {
+  it('validates what resolveInputs returns against the input schema', async () => {
+    const handler = jest.fn(() => ({ structured: { value: 'ran' } }));
+    const tool = defineTool(
+      spec({
+        input: z.strictObject({ count: z.number().int().optional() }),
+        resolveInputs: (args: Record<string, unknown>) => {
+          // As if copied unchecked from an input response.
+          args.count = 'three';
+          args.extra = true;
+          return args;
+        },
+        handler,
+      })
+    );
+    const result = await registry([tool]).registry.call(
+      server(),
+      { name: 'Test_Tool', arguments: {} },
+      context()
+    );
+    expect(handler).not.toHaveBeenCalled();
+    expect(result._meta).toEqual({ code: 'INVALID_ARGUMENT', retryable: false });
+    expect(textOf(result)).toContain('count:');
+    expect(textOf(result)).toContain('extra: unknown parameter');
+    expect(textOf(result)).not.toContain('three');
+  });
+
+  it('applies input defaults to what resolveInputs returns', async () => {
+    let seen: Record<string, unknown> | undefined;
+    const tool = defineTool(
+      spec({
+        input: z.strictObject({ value: z.string().default('x'), mode: z.string().optional() }),
+        resolveInputs: () => ({ mode: 'filled' }),
+        handler: (args: Record<string, unknown>) => {
+          seen = args;
+          return { structured: { value: String(args.value) } };
+        },
+      })
+    );
+    const result = await registry([tool]).registry.call(
+      server(),
+      { name: 'Test_Tool', arguments: {} },
+      context()
+    );
+    expect(result.isError).toBeUndefined();
+    expect(seen).toEqual({ value: 'x', mode: 'filled' });
+  });
+
+  it('treats a resolveInputs result that is not an object as a server bug', async () => {
+    const logged = jest.spyOn(logger, 'error').mockImplementation(() => undefined);
+    try {
+      const handler = jest.fn(() => ({ structured: { value: 'ran' } }));
+      const tool = defineTool(spec({ resolveInputs: () => undefined as never, handler }));
+      const result = await registry([tool]).registry.call(
+        server(),
+        { name: 'Test_Tool', arguments: {} },
+        context()
+      );
+      expect(handler).not.toHaveBeenCalled();
+      expect(result._meta).toEqual({ code: 'INTERNAL', retryable: false });
+    } finally {
+      logged.mockRestore();
+    }
   });
 });
 

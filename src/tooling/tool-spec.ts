@@ -109,9 +109,10 @@ export interface ToolSpec<In extends ToolInputSchema, Out extends ToolOutputSche
   readonly concurrency?: ConcurrencySpec<z.output<In>>;
   /**
    * Multi-round-trip hook, run after validation and the path gate. Return the
-   * arguments (possibly completed from ctx.request.inputResponses, which the
-   * hook must validate) or inputRequired(...). Paths it fills in go through
-   * the path gate again.
+   * arguments (possibly completed from ctx.request.inputResponses) or
+   * inputRequired(...). Whatever it returns, a new object or `args` changed in
+   * place, is validated against `input` and path-gated again before the
+   * handler sees it, so `input` must accept its own output (no .transform()).
    */
   readonly resolveInputs?: (
     args: z.output<In>,
@@ -271,6 +272,21 @@ export function defineTool<In extends ToolInputSchema, Out extends ToolOutputSch
 
   const inputJsonSchema = jsonSchemaOf(name, spec.input, 'input');
   const outputJsonSchema = jsonSchemaOf(name, spec.output, 'output');
+
+  if (spec.resolveInputs !== undefined) {
+    if (typeof spec.resolveInputs !== 'function') fail('resolveInputs must be a function');
+    // The registry parses the hook's result with `input` again. zod has no
+    // output-side JSON Schema for a transform, which is exactly the case where
+    // parsed arguments would not parse a second time.
+    try {
+      z.toJSONSchema(spec.input, { target: 'draft-2020-12', io: 'output' });
+    } catch {
+      fail(
+        'resolveInputs needs an input schema that accepts its own output; ' +
+          'remove the .transform() or do the conversion in the handler'
+      );
+    }
+  }
 
   return Object.freeze({
     ...spec,
