@@ -1,7 +1,7 @@
 /**
  * Owner of every AutoHotkey child process the server starts: scripts run for the
- * model, background runs, /Validate checks and the helper scripts (version probe,
- * window detection).
+ * model, background runs, /Validate checks (behind the include preflight of
+ * validate-preflight.ts) and the helper scripts (version probe, window detection).
  *
  * - Switches always precede the script path, because AutoHotkey passes everything
  *   after the script to the script itself (A_Args).
@@ -24,6 +24,13 @@ import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
 import logger from '../logger.js';
 import { describeEnvVars } from './env-config.js';
+import { scanIncludeClosure, withIncludeClosureLocked } from './validate-preflight.js';
+
+export {
+  ValidationRefusedError,
+  type DirectiveLocation,
+  type PreflightRefusal,
+} from './validate-preflight.js';
 
 export type RunStatus = 'running' | 'exited' | 'failed' | 'timeout' | 'killed';
 export type OutputStream = 'stdout' | 'stderr';
@@ -177,24 +184,42 @@ export function setHelperPathMapper(mapper: (file: string) => string): void {
 }
 
 /**
+ * Finds scripts/ahk/<name>.ahk by walking up from `startDir`, but never past the
+ * package root: the first directory holding a package.json or the portable
+ * bundle's portable-runtime.json. In an npm install that root is
+ * node_modules/<package>, so a scripts/ahk folder of the project that installed
+ * the server is never found, and never run. Undefined when the file is missing.
+ */
+export function locateHelperScript(
+  startDir: string,
+  name: HelperScript,
+  fileExists: (file: string) => boolean = existsSync
+): string | undefined {
+  for (let dir = startDir; ; dir = path.dirname(dir)) {
+    const candidate = path.join(dir, 'scripts', 'ahk', `${name}.ahk`);
+    if (fileExists(candidate)) return candidate;
+    const isPackageRoot =
+      fileExists(path.join(dir, 'package.json')) ||
+      fileExists(path.join(dir, 'portable-runtime.json'));
+    if (isPackageRoot || path.dirname(dir) === dir) return undefined;
+  }
+}
+
+/**
  * Path of a bundled helper under scripts/ahk/, as AutoHotkey should receive it.
- * Found by walking up from this module: src/core and dist/core sit two levels
- * below the root, and the portable bundle keeps the same layout. Throws when the
- * file is missing from the installation.
+ * src/core and dist/core sit two levels below the package root, and the portable
+ * bundle keeps the same layout. Throws when the file is missing from the
+ * installation.
  */
 export function getHelperScriptPath(name: HelperScript): string {
   const cached = helperPaths.get(name);
   if (cached) return helperPathMapper(cached);
-  const start = path.dirname(ownModuleFile());
-  for (let dir = start; ; dir = path.dirname(dir)) {
-    const candidate = path.join(dir, 'scripts', 'ahk', `${name}.ahk`);
-    if (existsSync(candidate)) {
-      helperPaths.set(name, candidate);
-      return helperPathMapper(candidate);
-    }
-    if (path.dirname(dir) === dir) break;
+  const found = locateHelperScript(path.dirname(ownModuleFile()), name);
+  if (found === undefined) {
+    throw new Error(`Helper script scripts/ahk/${name}.ahk is missing from this installation.`);
   }
-  throw new Error(`Helper script scripts/ahk/${name}.ahk is missing from this installation.`);
+  helperPaths.set(name, found);
+  return helperPathMapper(found);
 }
 
 // ---------------------------------------------------------------------------
@@ -1097,11 +1122,24 @@ export interface ValidateOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
   manager?: RunManager;
+  /**
+   * Let #DllLoad through, which runs the DLL's code. Only an operator setting may
+   * turn this on; never a tool argument.
+   */
+  allowDllLoad?: boolean;
+  /**
+   * Built-in variable values for resolving #Include paths. Defaults to what the
+   * runtime probe of `exe` reported; tests pass their own.
+   */
+  vars?: Readonly<Record<string, string>>;
 }
 
 export interface ValidateResult {
   exe: string;
-  /** 0 when the script loads; 2 for a load error. null when it never finished. */
+  /**
+   * 0 when the script loads; non-zero for a load error (2 on stock builds, 12 on
+   * the Console fork). null when it never finished.
+   */
   exitCode: number | null;
   /** Load errors, as "file (line) : ==> message" plus optional "Specifically:" lines. */
   stderr: string;
@@ -1110,12 +1148,25 @@ export interface ValidateResult {
   status: RunStatus;
   timedOut: boolean;
   durationMs: number;
+  /**
+   * Every file AutoHotkey may have loaded, the script first, in AutoHotkey's
+   * path form: the include closure (for cache keys).
+   */
+  files: readonly string[];
 }
 
 /**
- * Loads a script with AutoHotkey /Validate, which parses it and resolves its
- * #Include files without running any of it. Pass the real path so relative
- * includes and A_ScriptDir resolve as they will at run time.
+ * Loads a script with AutoHotkey /Validate, which parses it without running the
+ * script's code. Pass the real path so relative includes and A_ScriptDir resolve
+ * as they will at run time.
+ *
+ * Loading is not free of side effects, though: #DllLoad runs the DLL's code, and
+ * #Include opens files and quotes their lines in load errors. So before AutoHotkey
+ * starts, the include closure is scanned (validate-preflight.ts): a #DllLoad (unless
+ * allowDllLoad), a module import, or an include outside the allowed roots and the
+ * library folders throws ValidationRefusedError and nothing runs. The scanned files
+ * stay locked against this server's writers until AutoHotkey exits. This step is
+ * part of validate() so no caller can skip it.
  *
  * The prelude keeps AutoHotkey's default warnings from waiting on a hidden
  * dialog. A #Warn directive in the script itself that uses MsgBox mode still
@@ -1129,22 +1180,41 @@ export async function validate(
   options: ValidateOptions = {}
 ): Promise<ValidateResult> {
   // Imported on demand: ahk-runtime spawns its probes through this module.
-  const exe =
-    options.exe ?? (await (await import('./ahk-runtime.js')).requireRuntime('script')).path;
+  const runtime = await import('./ahk-runtime.js');
+  const exe = options.exe ?? (await runtime.requireRuntime('script')).path;
+  // Cached: requireRuntime() has already probed this executable.
+  const vars = options.vars ?? (await runtime.probeExecutable(exe)).vars;
   const manager = options.manager ?? runManager;
-  const snapshot = await manager.run({
-    exe,
-    script: scriptPath,
-    switches: { validate: true, include: getHelperScriptPath('validate-prelude') },
-    // On WSL the script path is in Windows form and is no use as a Linux cwd.
-    cwd: options.cwd ?? (process.platform === 'win32' ? path.dirname(scriptPath) : undefined),
-    timeoutMs: options.timeoutMs ?? VALIDATE_TIMEOUT_MS,
-    signal: options.signal,
-    windowsHide: true,
-    retain: false,
-    concurrencyKey: 'validate',
-    whenBusy: 'wait',
-  });
+  // On WSL the script path is in Windows form and is no use as a Linux cwd.
+  const cwd = options.cwd ?? (process.platform === 'win32' ? path.dirname(scriptPath) : undefined);
+
+  const scan = () =>
+    scanIncludeClosure({
+      script: scriptPath,
+      exe,
+      cwd: process.platform === 'win32' ? cwd : undefined,
+      vars,
+      allowDllLoad: options.allowDllLoad,
+    });
+  const { snapshot, files } = await withIncludeClosureLocked(
+    scan,
+    async closure => ({
+      files: closure.files,
+      snapshot: await manager.run({
+        exe,
+        script: scriptPath,
+        switches: { validate: true, include: getHelperScriptPath('validate-prelude') },
+        cwd,
+        timeoutMs: options.timeoutMs ?? VALIDATE_TIMEOUT_MS,
+        signal: options.signal,
+        windowsHide: true,
+        retain: false,
+        concurrencyKey: 'validate',
+        whenBusy: 'wait',
+      }),
+    }),
+    options.signal
+  );
   return {
     exe,
     exitCode: snapshot.exitCode,
@@ -1153,5 +1223,6 @@ export async function validate(
     status: snapshot.status,
     timedOut: snapshot.status === 'timeout',
     durationMs: snapshot.durationMs,
+    files,
   };
 }

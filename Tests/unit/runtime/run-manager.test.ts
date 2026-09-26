@@ -1,13 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import { isPathLocked, withPathLock } from '../../../src/core/fs/path-lock.js';
 import {
   OutputBuffer,
   RUN_RETENTION_MS,
   RunLimitError,
   RunManager,
   UnknownRunError,
+  ValidationRefusedError,
   buildAhkArgv,
   getHelperScriptPath,
+  locateHelperScript,
   validate,
   type RunEvent,
 } from '../../../src/core/run-manager.js';
@@ -630,6 +635,12 @@ describe('RunManager', () => {
 });
 
 describe('validate', () => {
+  // Built-in variables as the runtime probe would report them; passing them keeps
+  // validate() from probing EXE through the process-wide resolver.
+  const VARS = { A_MyDocuments: 'C:\\Users\\example\\Documents' };
+  // How the include preflight names SCRIPT on this host (read through /mnt/c off Windows).
+  const SCRIPT_LOCK = process.platform === 'win32' ? SCRIPT : '/mnt/c/scripts/demo.ahk';
+
   afterEach(() => {
     resetRuntimeCache();
     jest.useRealTimers();
@@ -643,7 +654,7 @@ describe('validate', () => {
         child.exit(2);
       },
     });
-    const result = await validate(SCRIPT, { exe: EXE, manager: manager(spawner) });
+    const result = await validate(SCRIPT, { exe: EXE, manager: manager(spawner), vars: VARS });
 
     expect(result).toMatchObject({ exe: EXE, exitCode: 2, status: 'exited', timedOut: false });
     expect(result.stderr).toContain('Missing ")"');
@@ -661,14 +672,75 @@ describe('validate', () => {
   });
 
   it('reports a load that never finishes as timed out', async () => {
-    jest.useFakeTimers();
+    // Real timers: the include preflight reads the disk before the process starts.
     const spawner = createFakeSpawner();
-    const pending = validate(SCRIPT, { exe: EXE, manager: manager(spawner), timeoutMs: 500 });
-    await jest.advanceTimersByTimeAsync(500);
-    await expect(pending).resolves.toMatchObject({
-      status: 'timeout',
-      timedOut: true,
-      exitCode: 1,
+    const result = await validate(SCRIPT, {
+      exe: EXE,
+      manager: manager(spawner),
+      timeoutMs: 200,
+      vars: VARS,
+    });
+    expect(result).toMatchObject({ status: 'timeout', timedOut: true, exitCode: 1 });
+  });
+
+  it('keeps the script locked against writers until AutoHotkey exits', async () => {
+    const spawner = createFakeSpawner();
+    const pending = validate(SCRIPT, { exe: EXE, manager: manager(spawner), vars: VARS });
+    while (spawner.children.length === 0) await new Promise(resolve => setImmediate(resolve));
+
+    expect(isPathLocked(SCRIPT_LOCK)).toBe(true);
+    const order: string[] = [];
+    const writer = withPathLock(SCRIPT_LOCK, async () => {
+      order.push('write');
+    });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(order).toEqual([]);
+
+    order.push('exit');
+    spawner.last().exit(0);
+    await expect(pending).resolves.toMatchObject({ exitCode: 0 });
+    await writer;
+    expect(order).toEqual(['exit', 'write']);
+  });
+
+  (process.platform === 'win32' ? describe : describe.skip)('include preflight', () => {
+    let dir: string;
+
+    beforeEach(async () => {
+      dir = await mkdtemp(path.join(os.tmpdir(), 'ahk-mcp-validate-'));
+    });
+
+    afterEach(async () => {
+      await rm(dir, { recursive: true, force: true });
+    });
+
+    it('refuses a #DllLoad without starting AutoHotkey', async () => {
+      const file = path.join(dir, 'dll.ahk');
+      await writeFile(file, 'x := 1\n#DllLoad "winmm.dll"\n', 'utf8');
+      const spawner = createFakeSpawner();
+      const error = await validate(file, {
+        exe: EXE,
+        manager: manager(spawner),
+        vars: VARS,
+      }).then(
+        () => undefined,
+        (reason: unknown) => reason
+      );
+      expect(error).toBeInstanceOf(ValidationRefusedError);
+      expect(error).toMatchObject({
+        reason: 'dll-load',
+        code: 'UNAVAILABLE',
+        location: { file, line: 2 },
+      });
+      expect(spawner.spawn.calls).toBe(0);
+    });
+
+    it('returns the files it checked', async () => {
+      const file = path.join(dir, 'main.ahk');
+      await writeFile(file, 'x := 1\n', 'utf8');
+      const spawner = createFakeSpawner({ onSpawn: child => child.exit(0) });
+      const result = await validate(file, { exe: EXE, manager: manager(spawner), vars: VARS });
+      expect(result.files).toEqual([file]);
     });
   });
 
@@ -694,5 +766,51 @@ describe('getHelperScriptPath', () => {
       expect(path.basename(getHelperScriptPath(name))).toBe(`${name}.ahk`);
       expect(path.basename(path.dirname(getHelperScriptPath(name)))).toBe('ahk');
     }
+  });
+});
+
+describe('locateHelperScript', () => {
+  const root = path.resolve('/fs-root');
+  const at = (...parts: string[]) => path.join(root, ...parts);
+  const exists = (files: string[]) => (file: string) => files.includes(file);
+
+  it('finds the helper at the package root of a source checkout or dist build', () => {
+    const files = [at('repo', 'package.json'), at('repo', 'scripts', 'ahk', 'version-probe.ahk')];
+    for (const start of [at('repo', 'src', 'core'), at('repo', 'dist', 'core')]) {
+      expect(locateHelperScript(start, 'version-probe', exists(files))).toBe(files[1]);
+    }
+  });
+
+  it("never searches past an npm install's package root into the host project", () => {
+    const pkg = at('project', 'node_modules', 'ahk-server-v2');
+    const planted = at('project', 'scripts', 'ahk', 'version-probe.ahk');
+    const files = [at('project', 'package.json'), path.join(pkg, 'package.json'), planted];
+    expect(
+      locateHelperScript(path.join(pkg, 'dist', 'core'), 'version-probe', exists(files))
+    ).toBeUndefined();
+
+    const shipped = path.join(pkg, 'scripts', 'ahk', 'version-probe.ahk');
+    expect(
+      locateHelperScript(
+        path.join(pkg, 'dist', 'core'),
+        'version-probe',
+        exists([...files, shipped])
+      )
+    ).toBe(shipped);
+  });
+
+  it('stops at the portable bundle root', () => {
+    const bundle = at('tools', 'mcp-runtime');
+    const files = [
+      path.join(bundle, 'portable-runtime.json'),
+      at('tools', 'scripts', 'ahk', 'window-detect.ahk'),
+    ];
+    expect(
+      locateHelperScript(path.join(bundle, 'dist', 'core'), 'window-detect', exists(files))
+    ).toBeUndefined();
+  });
+
+  it('gives up at the filesystem root', () => {
+    expect(locateHelperScript(at('a', 'b'), 'validate-prelude', () => false)).toBeUndefined();
   });
 });

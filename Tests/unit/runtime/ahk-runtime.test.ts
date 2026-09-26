@@ -40,6 +40,8 @@ interface FakeExe {
   hang?: boolean;
   /** Run the script even under /Validate, as an interpreter without the switch would. */
   ignoresValidate?: boolean;
+  /** The probe's "vars"; omitted from the JSON when undefined, as an older probe script. */
+  vars?: Record<string, string>;
 }
 
 const stock2011: FakeExe = { version: '2.0.11' };
@@ -71,6 +73,7 @@ function fakeAhk(exes: Record<string, FakeExe>) {
             ptrSize: exe.ptrSize ?? 8,
             print: exe.print ?? false,
             eval: exe.eval ?? false,
+            vars: exe.vars,
           })
       );
       child.exit(0);
@@ -350,6 +353,31 @@ describe('probe', () => {
     expect(probe).toMatchObject({ ok: false, isV2: false, version: null });
     expect(probe.error).toMatch(/^is not AutoHotkey v2 \(Error: This script requires/);
     expect(probesSpawned()).toBe(1);
+  });
+
+  it('reports the #Include variables with the version and pointer size added', async () => {
+    const documents = 'C:\\Users\\example\\Documents';
+    const { resolver } = setup({
+      exes: { [STOCK]: { ...stock2011, vars: { A_MyDocuments: documents, A_Temp: 'C:\\T' } } },
+    });
+    expect((await resolver.probe(STOCK)).vars).toEqual({
+      A_MyDocuments: documents,
+      A_Temp: 'C:\\T',
+      A_AhkVersion: '2.0.11',
+      A_PtrSize: '8',
+    });
+  });
+
+  it('accepts probe output without variables, from an older probe script', async () => {
+    const { resolver } = setup({ exes: { [STOCK]: stock2011 } });
+    const probe = await resolver.probe(STOCK);
+    expect(probe.ok).toBe(true);
+    expect(probe.vars).toEqual({ A_AhkVersion: '2.0.11', A_PtrSize: '8' });
+  });
+
+  it('reports no variables when the probe fails', async () => {
+    const { resolver } = setup({ exes: { [STOCK]: { stdout: 'hello' } } });
+    expect((await resolver.probe(STOCK)).vars).toEqual({});
   });
 
   it('rejects output that is not probe JSON', async () => {

@@ -101,6 +101,12 @@ export interface ProbeResult {
   isV2: boolean;
   /** 2.1-alpha.30 or later with Print() and Eval(): usable by AHK_Eval and AHK_UIA_*. */
   isFork: boolean;
+  /**
+   * Built-in variables AutoHotkey substitutes into #Include paths, as this
+   * interpreter reports them (A_MyDocuments, A_AppData, ..., A_AhkVersion,
+   * A_PtrSize). validate() resolves includes with them; empty when the probe failed.
+   */
+  vars: Readonly<Record<string, string>>;
   /** Why ok is false. */
   error: string | null;
   durationMs: number;
@@ -225,9 +231,12 @@ const probeOutputSchema = z.object({
   ptrSize: z.number().int(),
   print: z.boolean(),
   eval: z.boolean(),
+  // Optional so a probe script from an older installation still parses.
+  vars: z.record(z.string(), z.string()).optional(),
 });
 
 const NO_FEATURES: RuntimeFeatures = Object.freeze({ validate: false, print: false, eval: false });
+const NO_VARS: Readonly<Record<string, string>> = Object.freeze({});
 
 function defaultIsFile(file: string): boolean {
   try {
@@ -650,6 +659,7 @@ export class RuntimeResolver {
       features: NO_FEATURES,
       isV2: false,
       isFork: false,
+      vars: NO_VARS,
       error,
       durationMs: this.now() - started,
     });
@@ -705,6 +715,11 @@ export class RuntimeResolver {
         meetsForkMinimum(parsedVersion) &&
         features.print &&
         features.eval,
+      vars: Object.freeze({
+        ...parsed.data.vars,
+        A_AhkVersion: version,
+        A_PtrSize: String(ptrSize),
+      }),
       error: null,
       durationMs: this.now() - started,
     };
