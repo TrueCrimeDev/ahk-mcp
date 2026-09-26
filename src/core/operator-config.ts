@@ -9,6 +9,10 @@
  *
  * Reads are cached by modification time and size, so callers can ask on every
  * request and still pick up an operator's edit without a restart.
+ *
+ * Each key is validated on its own, so one mistake does not discard the rest
+ * of the file. Whatever cannot be used fails closed: bad list entries are
+ * dropped, and toolsets the server cannot read are not listed.
  */
 
 import { promises as fs } from 'node:fs';
@@ -19,6 +23,8 @@ import EnvironmentConfig, {
   TOOLSETS,
   getEnvConfig,
   normalizeFileExtension,
+  parseToolsetNames,
+  writeConfigError,
   writeConfigWarning,
   type EnvConfig,
   type Toolset,
@@ -53,7 +59,23 @@ const extensionValue = z.string().transform((value, ctx) => {
   return extension;
 });
 
-/** Shape of operator-config.json. Every key is optional. */
+// Each entry stands for the toolsets it names: one, or every toolset for 'all'.
+const toolsetValue = z.string().transform((value, ctx) => {
+  const { valid, unknown } = parseToolsetNames([value.trim()]);
+  if (unknown.length > 0) {
+    ctx.addIssue({
+      code: 'custom',
+      message: `unknown toolset '${value}'; expected ${TOOLSETS.join(', ')} or all`,
+    });
+    return z.NEVER;
+  }
+  return valid;
+});
+
+/**
+ * Shape of operator-config.json. Every key is optional. The loader applies it
+ * key by key and list entry by list entry rather than to the whole file.
+ */
 export const operatorConfigSchema = z.object({
   $schema: z.string().optional(),
   allowedDirs: key(z.array(pathValue).optional(), {
@@ -75,9 +97,9 @@ export const operatorConfigSchema = z.object({
     description:
       'The thqby `vscode-autohotkey2-lsp` extension directory, or its `server/dist/server.js`. `AHK_MCP_THQBY_PATH` overrides it.',
   }),
-  toolsets: key(z.array(z.enum(TOOLSETS)).optional(), {
+  toolsets: key(z.array(toolsetValue).optional(), {
     kind: 'list',
-    description: `Toolsets to list: ${TOOLSETS.map(name => `\`${name}\``).join(', ')}. \`AHK_MCP_TOOLSETS\` overrides it.`,
+    description: `Toolsets to list: ${TOOLSETS.map(name => `\`${name}\``).join(', ')}, or \`all\`. Unknown names are ignored; a value that is not a list lists no toolsets. \`AHK_MCP_TOOLSETS\` overrides it.`,
   }),
   fileExtensions: key(z.array(extensionValue).optional(), {
     kind: 'list',
@@ -103,22 +125,35 @@ export interface OperatorConfigSnapshot {
   readonly path: string;
   readonly exists: boolean;
   readonly mtimeMs?: number;
-  /** Empty when the file is missing or invalid. */
+  /**
+   * Every value that passed validation. Empty when the file is missing or
+   * unusable. A `toolsets` that is not a list is kept as an empty list.
+   */
   readonly config: OperatorConfig;
   /**
-   * Why the file could not be used. The server should refuse to start rather
-   * than run with a configuration the operator did not intend.
+   * Why none of the file could be used (unreadable, not JSON, not an object).
+   * getEffectiveOperatorSettings then lists no toolsets unless
+   * AHK_MCP_TOOLSETS is set; the other settings fall back as if the file were
+   * absent.
    */
   readonly error?: string;
+  /** Values that were rejected while the rest of the file is used. */
+  readonly issues: readonly string[];
   /** Non-fatal findings, such as unknown keys. */
   readonly warnings: readonly string[];
 }
 
+/** `error` means a setting the operator wrote is not in effect. */
+export type ConfigMessageLevel = 'warn' | 'error';
+
 export interface LoadOperatorConfigOptions {
   /** Read this file instead of the one in the configured directory. */
   path?: string;
-  /** Receives each distinct warning or error once per file version; defaults to stderr. */
-  warn?: (message: string) => void;
+  /**
+   * Receives each distinct message once per file version. Defaults to stderr,
+   * where errors are written at every log level.
+   */
+  warn?: (message: string, level: ConfigMessageLevel) => void;
 }
 
 interface CacheEntry {
@@ -140,33 +175,110 @@ function freezeSnapshot(snapshot: OperatorConfigSnapshot): OperatorConfigSnapsho
     if (Array.isArray(value)) Object.freeze(value);
   }
   Object.freeze(snapshot.config);
+  Object.freeze(snapshot.issues);
   Object.freeze(snapshot.warnings);
   return Object.freeze(snapshot);
 }
 
-function report(snapshot: OperatorConfigSnapshot, warn: (message: string) => void): void {
-  const version = `${snapshot.path}|${snapshot.mtimeMs ?? 'none'}`;
-  const messages = snapshot.error
-    ? [`${snapshot.path} is not used: ${snapshot.error}`, ...snapshot.warnings]
-    : snapshot.warnings;
-  for (const message of messages) {
-    const id = `${version}|${message}`;
-    if (reported.has(id)) continue;
-    reported.add(id);
-    warn(message);
+type Reporter = NonNullable<LoadOperatorConfigOptions['warn']>;
+
+function defaultReporter(message: string, level: ConfigMessageLevel): void {
+  if (level === 'error') writeConfigError(message);
+  else writeConfigWarning(message);
+}
+
+function reportOnce(
+  snapshot: OperatorConfigSnapshot,
+  message: string,
+  level: ConfigMessageLevel,
+  sink: Reporter
+): void {
+  const id = `${snapshot.path}|${snapshot.mtimeMs ?? 'none'}|${message}`;
+  if (reported.has(id)) return;
+  reported.add(id);
+  sink(message, level);
+}
+
+function report(snapshot: OperatorConfigSnapshot, sink: Reporter): void {
+  if (snapshot.error) {
+    reportOnce(snapshot, `${snapshot.path} is not used: ${snapshot.error}`, 'error', sink);
   }
+  for (const issue of snapshot.issues) reportOnce(snapshot, issue, 'error', sink);
+  for (const warning of snapshot.warnings) reportOnce(snapshot, warning, 'warn', sink);
 }
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function describeIssues(error: z.ZodError): string {
+  return error.issues.map(issue => issue.message).join('; ');
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Reads one object's keys, recording every rejected value as an issue. */
+class KeyReader {
+  readonly issues: string[] = [];
+
+  constructor(
+    private readonly file: string,
+    private readonly raw: Record<string, unknown>
+  ) {}
+
+  has(name: OperatorConfigKey): boolean {
+    return Object.prototype.hasOwnProperty.call(this.raw, name);
+  }
+
+  issue(message: string): void {
+    this.issues.push(`${this.file}: ${message}`);
+  }
+
+  /** The value, or undefined (and an issue) when it is invalid. */
+  value<T>(name: OperatorConfigKey, schema: z.ZodType<T>): T | undefined {
+    if (!this.has(name)) return undefined;
+    const parsed = schema.safeParse(this.raw[name]);
+    if (parsed.success) return parsed.data;
+    this.issue(`${name} is ignored: ${describeIssues(parsed.error)}`);
+    return undefined;
+  }
+
+  /**
+   * The valid entries of a list; each invalid entry is dropped with an issue.
+   * Undefined when the key is absent or the value is not a list; the caller
+   * decides what a wrong type means.
+   */
+  list<T>(name: OperatorConfigKey, entry: z.ZodType<T>): T[] | undefined {
+    const value = this.raw[name];
+    if (!this.has(name) || !Array.isArray(value)) return undefined;
+    const result: T[] = [];
+    value.forEach((item: unknown, index) => {
+      const parsed = entry.safeParse(item);
+      if (parsed.success) result.push(parsed.data);
+      else this.issue(`${name}[${index}] is ignored: ${describeIssues(parsed.error)}`);
+    });
+    return result;
+  }
+
+  /** Like list(), but a value that is not a list is ignored with an issue. */
+  listOrIgnore<T>(name: OperatorConfigKey, entry: z.ZodType<T>): T[] | undefined {
+    const result = this.list(name, entry);
+    if (result === undefined && this.has(name)) {
+      this.issue(`${name} is ignored: expected a list, received ${this.typeOf(name)}`);
+    }
+    return result;
+  }
+
+  typeOf(name: OperatorConfigKey): string {
+    const value = this.raw[name];
+    return value === null ? 'null' : typeof value;
+  }
+}
+
 function parseContent(file: string, text: string, mtimeMs: number): OperatorConfigSnapshot {
-  const base = { path: file, exists: true, mtimeMs };
+  const base = { path: file, exists: true, mtimeMs, issues: [] };
   let raw: unknown;
   try {
     // Notepad and PowerShell 5 write a UTF-8 BOM, which JSON.parse rejects.
@@ -183,26 +295,41 @@ function parseContent(file: string, text: string, mtimeMs: number): OperatorConf
     .filter(name => !known.has(name))
     .map(name => `${file}: unknown key "${name}" is ignored`);
 
-  const parsed = operatorConfigSchema.safeParse(raw);
-  if (!parsed.success) {
-    const problems = parsed.error.issues
-      .map(issue => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-      .join('; ');
-    return { ...base, config: {}, error: problems, warnings };
-  }
-
+  const read = new KeyReader(file, raw);
   const directory = path.dirname(file);
   const resolve = (value: string) => path.resolve(directory, value);
-  const { allowedDirs, ahkPath, forkAhkPath, thqbyLspPath, toolsets, fileExtensions } = parsed.data;
+
+  const allowedDirs = read.listOrIgnore('allowedDirs', pathValue);
+  const ahkPath = read.value('ahkPath', pathValue);
+  const forkAhkPath = read.value('forkAhkPath', pathValue);
+  const thqbyLspPath = read.value('thqbyLspPath', pathValue);
+
+  // The operator meant to restrict the surface, so a toolsets value the server
+  // cannot understand lists nothing rather than everything.
+  let toolsets: Toolset[] | undefined;
+  if (read.has('toolsets')) {
+    const entries = read.list('toolsets', toolsetValue);
+    if (entries) {
+      toolsets = TOOLSETS.filter(name => entries.some(names => names.includes(name)));
+    } else {
+      read.issue(
+        `toolsets must be a list, received ${read.typeOf('toolsets')}; no toolsets are listed`
+      );
+      toolsets = [];
+    }
+  }
+
+  const fileExtensions = read.listOrIgnore('fileExtensions', extensionValue);
+
   const config: OperatorConfig = {
     ...(allowedDirs && { allowedDirs: allowedDirs.map(resolve) }),
     ...(ahkPath && { ahkPath: resolve(ahkPath) }),
     ...(forkAhkPath && { forkAhkPath: resolve(forkAhkPath) }),
     ...(thqbyLspPath && { thqbyLspPath: resolve(thqbyLspPath) }),
-    ...(toolsets && { toolsets: TOOLSETS.filter(name => toolsets.includes(name)) }),
+    ...(toolsets && { toolsets }),
     ...(fileExtensions && { fileExtensions: [...new Set(fileExtensions)] }),
   };
-  return { ...base, config, warnings };
+  return { ...base, config, issues: read.issues, warnings };
 }
 
 /**
@@ -213,7 +340,7 @@ export async function loadOperatorConfig(
   options: LoadOperatorConfigOptions = {}
 ): Promise<OperatorConfigSnapshot> {
   const file = path.resolve(options.path ?? getOperatorConfigPath());
-  const warn = options.warn ?? writeConfigWarning;
+  const sink = options.warn ?? defaultReporter;
 
   let stat: Awaited<ReturnType<typeof fs.stat>>;
   try {
@@ -221,16 +348,17 @@ export async function loadOperatorConfig(
   } catch (error) {
     cache.delete(file);
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return freezeSnapshot({ path: file, exists: false, config: {}, warnings: [] });
+      return freezeSnapshot({ path: file, exists: false, config: {}, issues: [], warnings: [] });
     }
     const snapshot = freezeSnapshot({
       path: file,
       exists: true,
       config: {},
       error: `cannot be read (${describeError(error)})`,
+      issues: [],
       warnings: [],
     });
-    report(snapshot, warn);
+    report(snapshot, sink);
     return snapshot;
   }
 
@@ -239,7 +367,14 @@ export async function loadOperatorConfig(
     return hit.snapshot;
   }
 
-  const base = { path: file, exists: true, mtimeMs: stat.mtimeMs, config: {}, warnings: [] };
+  const base = {
+    path: file,
+    exists: true,
+    mtimeMs: stat.mtimeMs,
+    config: {},
+    issues: [],
+    warnings: [],
+  };
   let snapshot: OperatorConfigSnapshot;
   let cacheable = true;
   if (!stat.isFile()) {
@@ -258,11 +393,11 @@ export async function loadOperatorConfig(
 
   const frozen = freezeSnapshot(snapshot);
   if (cacheable) cache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, snapshot: frozen });
-  report(frozen, warn);
+  report(frozen, sink);
   return frozen;
 }
 
-/** Forgets cached files and reported warnings (tests). */
+/** Forgets cached files and reported messages (tests). */
 export function resetOperatorConfigCache(): void {
   cache.clear();
   reported.clear();
@@ -284,9 +419,15 @@ export interface EffectiveOperatorSettings {
   readonly ahkPath?: string;
   readonly forkAhkPath?: string;
   readonly thqbyLspPath?: string;
+  /**
+   * Empty, with source 'file', when the file exists but cannot be used and
+   * AHK_MCP_TOOLSETS is unset: the server cannot tell what the operator
+   * restricted, so it lists nothing rather than everything.
+   */
   readonly toolsets: readonly Toolset[];
   readonly fileExtensions: readonly string[];
   readonly sources: Readonly<Record<Exclude<OperatorConfigKey, 'allowedDirs'>, SettingSource>>;
+  /** The snapshot the settings came from; its error and issues say what was not used. */
   readonly file: OperatorConfigSnapshot;
 }
 
@@ -323,21 +464,36 @@ function pick<T>(
  * sets them, else from the file; allowed directories are the union of both.
  * Executable paths from the environment are passed through unchanged; the
  * runtime resolver decides how to treat them.
+ *
+ * An unusable file contributes nothing, and toolsets then fail closed (see
+ * EffectiveOperatorSettings.toolsets).
  */
 export async function getEffectiveOperatorSettings(
   options: EffectiveSettingsOptions = {}
 ): Promise<EffectiveOperatorSettings> {
   const env = options.env ?? getEnvConfig();
+  const sink = options.warn ?? defaultReporter;
   const file = await loadOperatorConfig({
     path: options.path ?? getOperatorConfigPath(env),
-    warn: options.warn,
+    warn: sink,
   });
   const fromFile = file.config;
 
   const ahkPath = pick(env.AHK_MCP_AHK_PATH, fromFile.ahkPath);
   const forkAhkPath = pick(env.AHK_MCP_FORK_AHK_PATH, fromFile.forkAhkPath);
   const thqbyLspPath = pick(env.AHK_MCP_THQBY_PATH, fromFile.thqbyLspPath);
-  const toolsets = pick<readonly Toolset[]>(env.AHK_MCP_TOOLSETS, fromFile.toolsets);
+  const failClosed = file.error !== undefined && env.AHK_MCP_TOOLSETS === undefined;
+  const toolsets = failClosed
+    ? { value: Object.freeze<Toolset[]>([]), source: 'file' as const }
+    : pick<readonly Toolset[]>(env.AHK_MCP_TOOLSETS, fromFile.toolsets);
+  if (failClosed) {
+    reportOnce(
+      file,
+      `No toolsets are listed because ${file.path} is not used. Fix the file, or set AHK_MCP_TOOLSETS.`,
+      'error',
+      sink
+    );
+  }
   const fileExtensions = pick<readonly string[]>(
     env.AHK_MCP_FILE_EXTENSIONS,
     fromFile.fileExtensions

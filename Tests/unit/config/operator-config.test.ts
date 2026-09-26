@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from '@jest/globals';
+import { afterAll, afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,7 +33,12 @@ function writeConfig(dir: string, content: unknown, { bom = false } = {}): strin
 
 function capture() {
   const messages: string[] = [];
-  return { messages, warn: (message: string) => messages.push(message) };
+  const errors: string[] = [];
+  const warn = (message: string, level: 'warn' | 'error') => {
+    messages.push(message);
+    if (level === 'error') errors.push(message);
+  };
+  return { messages, errors, warn };
 }
 
 const quietEnv = (env: Record<string, string>) => parseEnv(env, { warn: () => undefined }).config;
@@ -99,31 +104,103 @@ describe('loadOperatorConfig', () => {
     expect(Object.isFrozen(snapshot.config.allowedDirs)).toBe(true);
   });
 
-  it('rejects invalid JSON as a whole and reports it once per file version', async () => {
+  it('rejects invalid JSON as a whole and reports it once per file version, as an error', async () => {
     const file = writeConfig(freshDir(), '{ "allowedDirs": [ ');
-    const { messages, warn } = capture();
+    const { messages, errors, warn } = capture();
 
     const first = await loadOperatorConfig({ path: file, warn });
     expect(first.config).toEqual({});
     expect(first.error).toMatch(/^invalid JSON/);
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain(`${file} is not used: invalid JSON`);
+    expect(errors).toEqual(messages);
 
     const second = await loadOperatorConfig({ path: file, warn });
     expect(second).toBe(first);
     expect(messages).toHaveLength(1);
   });
 
-  it('rejects the whole file when one value is invalid', async () => {
-    const file = writeConfig(freshDir(), {
-      allowedDirs: ['ok'],
-      toolsets: ['files', 'everything'],
-      fileExtensions: ['../x'],
+  it('rejects a Windows path with a single backslash as invalid JSON', async () => {
+    const file = writeConfig(
+      freshDir(),
+      '{ "toolsets": ["docs"], "allowedDirs": ["C:\\Scripts"] }'
+    );
+    const snapshot = await loadOperatorConfig({ path: file, warn: () => undefined });
+    expect(snapshot.error).toMatch(/^invalid JSON/);
+    expect(snapshot.config).toEqual({});
+  });
+
+  it('keeps every valid value when others are invalid, and reports each as an error', async () => {
+    const dir = freshDir();
+    const file = writeConfig(dir, {
+      allowedDirs: ['ok', '', 7],
+      ahkPath: 5,
+      forkAhkPath: 'fork.exe',
+      toolsets: ['files', 'everything', 'Docs'],
+      fileExtensions: ['../x', 'ini'],
     });
+    const { messages, errors, warn } = capture();
+    const snapshot = await loadOperatorConfig({ path: file, warn });
+
+    expect(snapshot.error).toBeUndefined();
+    expect(snapshot.config).toEqual({
+      allowedDirs: [path.join(dir, 'ok')],
+      forkAhkPath: path.join(dir, 'fork.exe'),
+      toolsets: ['files', 'docs'],
+      fileExtensions: ['.ini'],
+    });
+    expect(snapshot.issues).toEqual([
+      `${file}: allowedDirs[1] is ignored: must not be empty`,
+      expect.stringMatching(/^.*: allowedDirs\[2\] is ignored: .*expected string/),
+      expect.stringMatching(/^.*: ahkPath is ignored: .*expected string/),
+      `${file}: toolsets[1] is ignored: unknown toolset 'everything'; expected files, analysis, run, debug, docs, uia, server, compat or all`,
+      `${file}: fileExtensions[0] is ignored: '../x' is not a file extension`,
+    ]);
+    expect(errors).toEqual(snapshot.issues);
+    expect(messages).toEqual(errors);
+  });
+
+  it('keeps only the recognized toolset names, like AHK_MCP_TOOLSETS', async () => {
+    const file = writeConfig(freshDir(), { toolsets: ['files', 'analyis'] });
+    const snapshot = await loadOperatorConfig({ path: file, warn: () => undefined });
+    expect(snapshot.config.toolsets).toEqual(['files']);
+    expect(snapshot.issues).toHaveLength(1);
+    expect(snapshot.issues[0]).toContain("unknown toolset 'analyis'");
+  });
+
+  it('accepts all, case-insensitive names and an empty toolsets list', async () => {
+    const all = writeConfig(freshDir(), { toolsets: [' ALL '] });
+    expect(
+      (await loadOperatorConfig({ path: all, warn: () => undefined })).config.toolsets
+    ).toEqual([...TOOLSETS]);
+    const none = writeConfig(freshDir(), { toolsets: [] });
+    const snapshot = await loadOperatorConfig({ path: none, warn: () => undefined });
+    expect(snapshot.config.toolsets).toEqual([]);
+    expect(snapshot.issues).toEqual([]);
+  });
+
+  it.each([['files'], [null], [{ files: true }], [3]])(
+    'lists no toolsets when toolsets is %j rather than a list',
+    async value => {
+      const file = writeConfig(freshDir(), { toolsets: value, fileExtensions: ['.ahk'] });
+      const { errors, warn } = capture();
+      const snapshot = await loadOperatorConfig({ path: file, warn });
+      expect(snapshot.error).toBeUndefined();
+      expect(snapshot.config).toEqual({ toolsets: [], fileExtensions: ['.ahk'] });
+      expect(errors).toEqual([
+        expect.stringMatching(/toolsets must be a list.*no toolsets are listed/),
+      ]);
+    }
+  );
+
+  it('ignores other lists that are not lists', async () => {
+    const file = writeConfig(freshDir(), { allowedDirs: 'C:\\Scripts', fileExtensions: '.ahk' });
     const snapshot = await loadOperatorConfig({ path: file, warn: () => undefined });
     expect(snapshot.config).toEqual({});
-    expect(snapshot.error).toContain('toolsets.1:');
-    expect(snapshot.error).toContain("fileExtensions.0: '../x' is not a file extension");
+    expect(snapshot.issues).toEqual([
+      `${file}: allowedDirs is ignored: expected a list, received string`,
+      `${file}: fileExtensions is ignored: expected a list, received string`,
+    ]);
   });
 
   it('requires a JSON object at the top level', async () => {
@@ -297,15 +374,84 @@ describe('getEffectiveOperatorSettings', () => {
     });
   });
 
-  it('ignores an invalid file and exposes the reason', async () => {
+  it('lists no toolsets when the file is unusable, and says why as an error', async () => {
     const dir = freshDir();
-    writeConfig(dir, { toolsets: 'files' });
+    const file = writeConfig(dir, '{ "toolsets": ["docs"], "allowedDirs": ["C:\\Scripts"] }');
+    const { errors, warn } = capture();
+    const settings = await getEffectiveOperatorSettings({
+      env: quietEnv({ AHK_MCP_CONFIG_DIR: dir, AHK_MCP_ALLOWED_DIRS: path.join(scratch, 'env') }),
+      warn,
+    });
+
+    expect(settings.file.error).toMatch(/^invalid JSON/);
+    expect(settings.toolsets).toEqual([]);
+    expect(Object.isFrozen(settings.toolsets)).toBe(true);
+    expect(settings.sources.toolsets).toBe('file');
+    // Everything else falls back as if the file were absent.
+    expect(settings.allowedDirs).toEqual([path.join(scratch, 'env')]);
+    expect(settings.fileExtensions).toEqual(['.ahk', '.ah2', '.ahk2']);
+    expect(errors).toEqual([
+      expect.stringContaining(`${file} is not used: invalid JSON`),
+      `No toolsets are listed because ${file} is not used. Fix the file, or set AHK_MCP_TOOLSETS.`,
+    ]);
+
+    // Reported once per file version, however often the settings are read.
+    await getEffectiveOperatorSettings({ env: quietEnv({ AHK_MCP_CONFIG_DIR: dir }), warn });
+    expect(errors).toHaveLength(2);
+  });
+
+  it('lists no toolsets when the file is a directory', async () => {
+    const dir = freshDir();
+    fs.mkdirSync(path.join(dir, OPERATOR_CONFIG_FILENAME));
     const settings = await getEffectiveOperatorSettings({
       env: quietEnv({ AHK_MCP_CONFIG_DIR: dir }),
       warn: () => undefined,
     });
-    expect(settings.file.error).toContain('toolsets:');
-    expect(settings.sources.toolsets).toBe('default');
+    expect(settings.file.error).toBe('not a file');
+    expect(settings.toolsets).toEqual([]);
+  });
+
+  it('lets AHK_MCP_TOOLSETS decide when the file is unusable', async () => {
+    const dir = freshDir();
+    writeConfig(dir, '{');
+    const { errors, warn } = capture();
+    const settings = await getEffectiveOperatorSettings({
+      env: quietEnv({ AHK_MCP_CONFIG_DIR: dir, AHK_MCP_TOOLSETS: 'docs' }),
+      warn,
+    });
+    expect(settings.toolsets).toEqual(['docs']);
+    expect(settings.sources.toolsets).toBe('env');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('is not used');
+  });
+
+  it.each([
+    [{ toolsets: ['files', 'analyis'] }, ['files']],
+    [{ toolsets: ['docs'], fileExtensions: ['.ahk', '../x'] }, ['docs']],
+    [{ toolsets: 'files' }, []],
+    [{ toolsets: ['docs'], ahkPath: '' }, ['docs']],
+  ])('never widens the toolsets of %j', async (content, expected) => {
+    const dir = freshDir();
+    writeConfig(dir, content);
+    const settings = await getEffectiveOperatorSettings({
+      env: quietEnv({ AHK_MCP_CONFIG_DIR: dir }),
+      warn: () => undefined,
+    });
+    expect(settings.toolsets).toEqual(expected);
+    expect(settings.sources.toolsets).toBe('file');
+    expect(settings.file.issues.length).toBeGreaterThan(0);
+  });
+
+  it('keeps the valid file extensions', async () => {
+    const dir = freshDir();
+    writeConfig(dir, { fileExtensions: ['.ahk', '../x'] });
+    const settings = await getEffectiveOperatorSettings({
+      env: quietEnv({ AHK_MCP_CONFIG_DIR: dir }),
+      warn: () => undefined,
+    });
+    expect(settings.fileExtensions).toEqual(['.ahk']);
+    expect(settings.sources.fileExtensions).toBe('file');
+    expect(settings.toolsets).toEqual([...TOOLSETS]);
   });
 
   if (process.platform === 'win32') {
@@ -319,6 +465,61 @@ describe('getEffectiveOperatorSettings', () => {
       expect(settings.allowedDirs).toEqual(['c:\\scripts']);
     });
   }
+});
+
+describe('default reporter', () => {
+  let stderr: ReturnType<typeof jest.spyOn>;
+  const savedLevel = process.env.AHK_MCP_LOG_LEVEL;
+
+  beforeEach(() => {
+    stderr = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    process.env.AHK_MCP_LOG_LEVEL = 'error';
+    resetEnvConfig();
+  });
+
+  afterEach(() => {
+    stderr.mockRestore();
+    if (savedLevel === undefined) delete process.env.AHK_MCP_LOG_LEVEL;
+    else process.env.AHK_MCP_LOG_LEVEL = savedLevel;
+    resetEnvConfig();
+  });
+
+  // Only this suite's files: parsing the real environment may warn about it too.
+  const written = () =>
+    stderr.mock.calls.map(call => String(call[0])).filter(line => line.includes(scratch));
+
+  it('writes errors to stderr even when the log level is error', async () => {
+    const dir = freshDir();
+    const file = writeConfig(dir, '{ "toolsets": ["docs"], "allowedDirs": ["C:\\Scripts"] }');
+    const settings = await getEffectiveOperatorSettings({
+      env: quietEnv({ AHK_MCP_CONFIG_DIR: dir }),
+    });
+    expect(settings.toolsets).toEqual([]);
+    const lines = written();
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/ERROR: \[config\] .* is not used: invalid JSON/);
+    expect(lines[0]).toContain(file);
+    expect(lines[1]).toMatch(/ERROR: \[config\] No toolsets are listed because /);
+  });
+
+  it('writes rejected values as errors and unknown keys as warnings', async () => {
+    const file = writeConfig(freshDir(), { toolsets: ['analyis'], extra: 1 });
+    await loadOperatorConfig({ path: file });
+    const lines = written();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/ERROR: \[config\] .*toolsets\[0\] is ignored: unknown toolset/);
+
+    // At the warn level the unknown key is reported too.
+    process.env.AHK_MCP_LOG_LEVEL = 'warn';
+    resetEnvConfig();
+    resetOperatorConfigCache();
+    stderr.mockClear();
+    await loadOperatorConfig({ path: file });
+    expect(written()).toEqual([
+      expect.stringMatching(/ERROR: \[config\] .*toolsets\[0\] is ignored/),
+      expect.stringMatching(/WARN: \[config\] .*unknown key "extra" is ignored/),
+    ]);
+  });
 });
 
 describe('read-only contract', () => {

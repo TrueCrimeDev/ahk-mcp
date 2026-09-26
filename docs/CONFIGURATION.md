@@ -162,18 +162,27 @@ The file is `operator-config.json` in the directory named by
   changes, so edits apply without a restart. Toolsets are the exception: they
   are evaluated at startup.
 - Relative paths are resolved against the file's own directory.
-- A UTF-8 byte order mark is accepted. Unknown keys are reported and ignored.
-- If the file is not valid JSON, or any value is invalid, none of it is used and
-  the problem is reported on stderr.
+- A UTF-8 byte order mark is accepted. Unknown keys are reported as warnings and
+  ignored.
+- Each key is checked on its own. An invalid list entry is dropped and the rest
+  of the list is used; any other invalid value is ignored, as if the key were
+  absent. `toolsets` fails closed: it keeps only the names it recognizes, and a
+  value that is not a list lists no toolsets.
+- If the file cannot be read or is not a valid JSON object, none of it is used.
+  No toolsets are listed then, unless `AHK_MCP_TOOLSETS` is set; the other
+  settings fall back as if the file were absent. Remember to double backslashes
+  in Windows paths.
+- Every value that is not used is reported on stderr as an error, which no log
+  level hides.
 
-| Key              | Type          | Description                                                                                                                                                     |
-| ---------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `allowedDirs`    | list of paths | Directories the file tools may read and write, in addition to the client roots, `AHK_MCP_ALLOWED_DIRS`, `AHK_MCP_SCRIPT_DIR` and the guarded working directory. |
-| `ahkPath`        | path          | AutoHotkey v2 interpreter. `AHK_MCP_AHK_PATH` overrides it.                                                                                                     |
-| `forkAhkPath`    | path          | AutoHotkey v2.1-alpha Console fork for `AHK_Eval` and the UIA tools. `AHK_MCP_FORK_AHK_PATH` overrides it.                                                      |
-| `thqbyLspPath`   | path          | The thqby `vscode-autohotkey2-lsp` extension directory, or its `server/dist/server.js`. `AHK_MCP_THQBY_PATH` overrides it.                                      |
-| `toolsets`       | list          | Toolsets to list: `files`, `analysis`, `run`, `debug`, `docs`, `uia`, `server`, `compat`. `AHK_MCP_TOOLSETS` overrides it.                                      |
-| `fileExtensions` | list          | File extensions the file tools accept; the leading dot is optional. `AHK_MCP_FILE_EXTENSIONS` overrides it.                                                     |
+| Key              | Type          | Description                                                                                                                                                                                                   |
+| ---------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allowedDirs`    | list of paths | Directories the file tools may read and write, in addition to the client roots, `AHK_MCP_ALLOWED_DIRS`, `AHK_MCP_SCRIPT_DIR` and the guarded working directory.                                               |
+| `ahkPath`        | path          | AutoHotkey v2 interpreter. `AHK_MCP_AHK_PATH` overrides it.                                                                                                                                                   |
+| `forkAhkPath`    | path          | AutoHotkey v2.1-alpha Console fork for `AHK_Eval` and the UIA tools. `AHK_MCP_FORK_AHK_PATH` overrides it.                                                                                                    |
+| `thqbyLspPath`   | path          | The thqby `vscode-autohotkey2-lsp` extension directory, or its `server/dist/server.js`. `AHK_MCP_THQBY_PATH` overrides it.                                                                                    |
+| `toolsets`       | list          | Toolsets to list: `files`, `analysis`, `run`, `debug`, `docs`, `uia`, `server`, `compat`, or `all`. Unknown names are ignored; a value that is not a list lists no toolsets. `AHK_MCP_TOOLSETS` overrides it. |
+| `fileExtensions` | list          | File extensions the file tools accept; the leading dot is optional. `AHK_MCP_FILE_EXTENSIONS` overrides it.                                                                                                   |
 
 Example:
 

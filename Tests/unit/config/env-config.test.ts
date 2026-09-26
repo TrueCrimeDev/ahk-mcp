@@ -11,7 +11,9 @@ import EnvironmentConfig, {
   getEnvConfig,
   parseBoolean,
   parseEnv,
+  parseToolsetNames,
   resetEnvConfig,
+  writeConfigError,
   writeConfigWarning,
 } from '../../../src/core/env-config.js';
 
@@ -177,6 +179,15 @@ describe('parseEnv values', () => {
     expect(config.AHK_MCP_TOOLSETS).toEqual(['files', 'docs']);
     expect(issues[0].message).toContain("unknown toolset 'analyis'");
     expect(sink.join('\n')).toContain('using files, docs');
+  });
+
+  it('shares its toolset name rules with operator-config.json', () => {
+    expect(parseToolsetNames(['DOCS', 'files', 'analyis'])).toEqual({
+      valid: ['files', 'docs'],
+      unknown: ['analyis'],
+    });
+    expect(parseToolsetNames(['all']).valid).toEqual([...TOOLSETS]);
+    expect(parseToolsetNames([]).valid).toEqual([]);
   });
 
   it('turns read-only mode on for an unrecognized value (fails closed)', () => {
@@ -376,6 +387,39 @@ describe('once-only warnings', () => {
       } finally {
         if (saved === undefined) delete process.env.AHK_MCP_LOG_LEVEL;
         else process.env.AHK_MCP_LOG_LEVEL = saved;
+        resetEnvConfig();
+      }
+    });
+
+    it('writes configuration errors at every log level, in the configured format', () => {
+      const saved = {
+        level: process.env.AHK_MCP_LOG_LEVEL,
+        format: process.env.AHK_MCP_LOG_FORMAT,
+      };
+      process.env.AHK_MCP_LOG_LEVEL = 'error';
+      try {
+        resetEnvConfig();
+        writeConfigWarning('hidden warning');
+        writeConfigError('toolsets is not used');
+        const lines = stderr.mock.calls.map(call => String(call[0]));
+        expect(lines.some(line => line.includes('hidden warning'))).toBe(false);
+        expect(lines.at(-1)).toMatch(/ERROR: \[config\] toolsets is not used\n$/);
+
+        process.env.AHK_MCP_LOG_FORMAT = 'json';
+        resetEnvConfig();
+        writeConfigError('toolsets is not used');
+        expect(JSON.parse(String(stderr.mock.calls.at(-1)?.[0]))).toMatchObject({
+          level: 'ERROR',
+          message: 'toolsets is not used',
+        });
+      } finally {
+        for (const [name, value] of [
+          ['AHK_MCP_LOG_LEVEL', saved.level],
+          ['AHK_MCP_LOG_FORMAT', saved.format],
+        ] as const) {
+          if (value === undefined) delete process.env[name];
+          else process.env[name] = value;
+        }
         resetEnvConfig();
       }
     });

@@ -108,8 +108,14 @@ function listPreprocess(separator: RegExp, lowercase: boolean) {
   };
 }
 
-/** Expands 'all' / '*' and returns the recognized toolsets in canonical order. */
-function toolsetsFrom(entries: readonly string[]): { valid: Toolset[]; unknown: string[] } {
+/**
+ * Expands 'all' / '*' and returns the recognized toolsets in canonical order.
+ * Shared with operator-config.json so both sources fail closed the same way.
+ */
+export function parseToolsetNames(entries: readonly string[]): {
+  valid: Toolset[];
+  unknown: string[];
+} {
   const wanted = new Set<string>();
   const unknown: string[] = [];
   for (const entry of entries) {
@@ -137,7 +143,7 @@ const booleanValue = z.string().transform((raw, ctx) => {
 const toolsetList = z
   .array(z.string())
   .transform((entries, ctx) => {
-    const { valid, unknown } = toolsetsFrom(entries);
+    const { valid, unknown } = parseToolsetNames(entries);
     for (const name of unknown) {
       ctx.addIssue({
         code: 'custom',
@@ -404,7 +410,7 @@ export const envSchema = z.object({
         'Toolsets to list, separated by commas, or `all`. Unknown names are ignored with a warning. Overrides `toolsets` in `operator-config.json`.',
       values: TOOLSETS,
       defaultText: 'all toolsets',
-      onInvalid: raw => toolsetsFrom(splitList(raw, LOOSE_SEPARATOR)).valid,
+      onInvalid: raw => parseToolsetNames(splitList(raw, LOOSE_SEPARATOR)).valid,
     }
   ),
   AHK_MCP_READ_ONLY: bool(false, {
@@ -782,12 +788,16 @@ function describeValue(value: unknown): string {
   return String(value);
 }
 
-function stderrWarning(format: string, message: string): void {
+function stderrLine(format: string, level: 'WARN' | 'ERROR', message: string): void {
   const line =
     format === 'json'
-      ? JSON.stringify({ timestamp: new Date().toISOString(), level: 'WARN', message })
-      : `[${new Date().toISOString()}] WARN: [config] ${message}`;
+      ? JSON.stringify({ timestamp: new Date().toISOString(), level, message })
+      : `[${new Date().toISOString()}] ${level}: [config] ${message}`;
   process.stderr.write(`${line}\n`);
+}
+
+function stderrWarning(format: string, message: string): void {
+  stderrLine(format, 'WARN', message);
 }
 
 /**
@@ -911,6 +921,14 @@ export function resetEnvConfig(): void {
 export function writeConfigWarning(message: string): void {
   const config = getEnvConfig();
   if (config.AHK_MCP_LOG_LEVEL !== 'error') stderrWarning(config.AHK_MCP_LOG_FORMAT, message);
+}
+
+/**
+ * Writes a configuration error to stderr in the configured format. Errors mean
+ * a setting the operator wrote is not in effect, so no log level hides them.
+ */
+export function writeConfigError(message: string): void {
+  stderrLine(getEnvConfig().AHK_MCP_LOG_FORMAT, 'ERROR', message);
 }
 
 // ---------------------------------------------------------------------------

@@ -123,8 +123,10 @@ function render() {
     [
       '- The server only reads it. It is re-read when its modification time or size changes, so edits apply without a restart. Toolsets are the exception: they are evaluated at startup.',
       "- Relative paths are resolved against the file's own directory.",
-      '- A UTF-8 byte order mark is accepted. Unknown keys are reported and ignored.',
-      '- If the file is not valid JSON, or any value is invalid, none of it is used and the problem is reported on stderr.',
+      '- A UTF-8 byte order mark is accepted. Unknown keys are reported as warnings and ignored.',
+      '- Each key is checked on its own. An invalid list entry is dropped and the rest of the list is used; any other invalid value is ignored, as if the key were absent. `toolsets` fails closed: it keeps only the names it recognizes, and a value that is not a list lists no toolsets.',
+      '- If the file cannot be read or is not a valid JSON object, none of it is used. No toolsets are listed then, unless `AHK_MCP_TOOLSETS` is set; the other settings fall back as if the file were absent. Remember to double backslashes in Windows paths.',
+      '- Every value that is not used is reported on stderr as an error, which no log level hides.',
     ].join('\n')
   );
   out.push(
