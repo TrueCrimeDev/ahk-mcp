@@ -7,6 +7,7 @@ import {
   TaskManager,
 } from '../../src/core/task-manager.js';
 import type { TaskCompletionEvent } from '../../src/core/task-manager.js';
+import { parseEnv, resetEnvConfig } from '../../src/core/env-config.js';
 import type { ToolResponse } from '../../src/core/server-interface.js';
 
 const okResult: ToolResponse = {
@@ -297,12 +298,181 @@ describe('TaskManager run-time limit', () => {
     expect(manager.getTask(task.taskId)?.status).toBe('failed');
   });
 
-  it.each([0, -5, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 31])(
-    'rejects taskTimeoutMs=%p, which would not be a usable finite limit',
+  it.each([-5, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53])(
+    'rejects taskTimeoutMs=%p, which the operator config would reject too',
     taskTimeoutMs => {
       expect(() => new TaskManager({ taskTimeoutMs })).toThrow(RangeError);
     }
   );
+
+  it('treats taskTimeoutMs=0 as no run-time limit', async () => {
+    jest.useFakeTimers();
+    const events: TaskCompletionEvent[] = [];
+    const manager = new TaskManager({
+      taskTimeoutMs: 0,
+      onComplete: event => void events.push(event),
+    });
+    const signals: AbortSignal[] = [];
+    const task = manager.createTask({
+      toolName: 'AHK_Run',
+      ttl: null,
+      execute: stuckWork(signals),
+    });
+
+    jest.advanceTimersByTime(DEFAULT_TASK_TIMEOUT_MS * 100);
+    expect(manager.getTask(task.taskId)?.status).toBe('working');
+    expect(signals[0]?.aborted).toBe(false);
+    expect(jest.getTimerCount()).toBe(0);
+
+    // Without a limit the task still ends when its work does, or on cancel.
+    expect(manager.cancelTask(task.taskId)?.status).toBe('cancelled');
+    await flushMicrotasks();
+    expect(events).toEqual([expect.objectContaining({ reason: 'cancelled' })]);
+  });
+
+  it('still expires a task by TTL when the run-time limit is disabled', () => {
+    jest.useFakeTimers();
+    const manager = new TaskManager({ taskTimeoutMs: 0 });
+    const signals: AbortSignal[] = [];
+    const task = manager.createTask({
+      toolName: 'AHK_Run',
+      ttl: 5_000,
+      execute: stuckWork(signals),
+    });
+
+    jest.advanceTimersByTime(4_999);
+    expect(manager.getTask(task.taskId)?.status).toBe('working');
+    jest.advanceTimersByTime(1);
+    expect(manager.getTask(task.taskId)).toBeUndefined();
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it("honours a limit beyond setTimeout's 2^31-1 ms range instead of firing at once", () => {
+    jest.useFakeTimers();
+    const limit = 2 ** 31 + 5_000;
+    const manager = new TaskManager({ taskTimeoutMs: limit });
+    const task = manager.createTask({ toolName: 'AHK_Run', ttl: null, execute: stuckWork() });
+
+    // A clamped timer would have failed the task after 1ms.
+    jest.advanceTimersByTime(1);
+    expect(manager.getTask(task.taskId)?.status).toBe('working');
+
+    jest.advanceTimersByTime(limit - 2);
+    expect(manager.getTask(task.taskId)?.status).toBe('working');
+    jest.advanceTimersByTime(1);
+    const info = manager.getTask(task.taskId);
+    expect(info?.status).toBe('failed');
+    expect(info?.statusMessage).toBe(`Task timed out after ${limit}ms`);
+  });
+
+  it("expires a TTL beyond setTimeout's range on time when no limit is set", () => {
+    jest.useFakeTimers();
+    const ttl = 2 ** 32;
+    const manager = new TaskManager({ taskTimeoutMs: 0 });
+    const task = manager.createTask({ toolName: 'AHK_Run', ttl, execute: stuckWork() });
+
+    jest.advanceTimersByTime(ttl - 1);
+    expect(manager.getTask(task.taskId)?.status).toBe('working');
+    jest.advanceTimersByTime(1);
+    expect(manager.getTask(task.taskId)).toBeUndefined();
+  });
+});
+
+describe('TaskManager operator configuration', () => {
+  const env = (timeoutMs: number, maxConcurrent: number) => () => ({
+    AHK_MCP_TASK_TIMEOUT_MS: timeoutMs,
+    AHK_MCP_TASK_MAX_CONCURRENT: maxConcurrent,
+  });
+
+  it('keeps its documented defaults in step with the config schema', () => {
+    const { config } = parseEnv({}, { strict: true });
+    expect(config.AHK_MCP_TASK_TIMEOUT_MS).toBe(DEFAULT_TASK_TIMEOUT_MS);
+    expect(config.AHK_MCP_TASK_MAX_CONCURRENT).toBe(DEFAULT_MAX_CONCURRENT_TASKS);
+  });
+
+  it.each([
+    ['0', '1'],
+    ['1', '1'],
+    ['1800000', '8'],
+    [String(2 ** 31), '64'],
+    [String(Number.MAX_SAFE_INTEGER), String(Number.MAX_SAFE_INTEGER)],
+  ])(
+    'accepts every value the config accepts (timeout %s, max concurrent %s)',
+    (timeout, maxConcurrent) => {
+      const { config } = parseEnv(
+        { AHK_MCP_TASK_TIMEOUT_MS: timeout, AHK_MCP_TASK_MAX_CONCURRENT: maxConcurrent },
+        { strict: true }
+      );
+      expect(() => new TaskManager({ env: () => config })).not.toThrow();
+      expect(
+        () =>
+          new TaskManager({
+            taskTimeoutMs: config.AHK_MCP_TASK_TIMEOUT_MS,
+            maxConcurrentTasksPerPrincipal: config.AHK_MCP_TASK_MAX_CONCURRENT,
+          })
+      ).not.toThrow();
+    }
+  );
+
+  it('takes unset options from the operator config', () => {
+    jest.useFakeTimers();
+    const manager = new TaskManager({ env: env(1_500, 1) });
+    const task = manager.createTask({ toolName: 'AHK_Run', ttl: null, execute: stuckWork() });
+    expect(() => manager.createTask({ toolName: 'AHK_Run', execute: stuckWork() })).toThrow(
+      TaskLimitError
+    );
+
+    jest.advanceTimersByTime(1_499);
+    expect(manager.getTask(task.taskId)?.status).toBe('working');
+    jest.advanceTimersByTime(1);
+    expect(manager.getTask(task.taskId)?.status).toBe('failed');
+  });
+
+  it('lets explicit options override the operator config', () => {
+    jest.useFakeTimers();
+    const manager = new TaskManager({
+      env: env(1_000, 1),
+      taskTimeoutMs: 0,
+      maxConcurrentTasksPerPrincipal: 2,
+    });
+    const task = manager.createTask({ toolName: 'AHK_Run', ttl: null, execute: stuckWork() });
+    expect(() => manager.createTask({ toolName: 'AHK_Run', execute: stuckWork() })).not.toThrow();
+
+    jest.advanceTimersByTime(10_000);
+    expect(manager.getTask(task.taskId)?.status).toBe('working');
+  });
+
+  it('reads AHK_MCP_TASK_TIMEOUT_MS and AHK_MCP_TASK_MAX_CONCURRENT when built bare', () => {
+    const saved = {
+      timeout: process.env.AHK_MCP_TASK_TIMEOUT_MS,
+      maxConcurrent: process.env.AHK_MCP_TASK_MAX_CONCURRENT,
+    };
+    const restore = (name: string, value: string | undefined) => {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    };
+
+    process.env.AHK_MCP_TASK_TIMEOUT_MS = '0';
+    process.env.AHK_MCP_TASK_MAX_CONCURRENT = '2';
+    resetEnvConfig();
+    try {
+      jest.useFakeTimers();
+      // The v2 server constructs its manager this way.
+      const manager = new TaskManager();
+      const task = manager.createTask({ toolName: 'AHK_Run', ttl: null, execute: stuckWork() });
+      manager.createTask({ toolName: 'AHK_Run', execute: stuckWork() });
+      expect(() => manager.createTask({ toolName: 'AHK_Run', execute: stuckWork() })).toThrow(
+        TaskLimitError
+      );
+
+      jest.advanceTimersByTime(DEFAULT_TASK_TIMEOUT_MS * 2);
+      expect(manager.getTask(task.taskId)?.status).toBe('working');
+    } finally {
+      restore('AHK_MCP_TASK_TIMEOUT_MS', saved.timeout);
+      restore('AHK_MCP_TASK_MAX_CONCURRENT', saved.maxConcurrent);
+      resetEnvConfig();
+    }
+  });
 });
 
 describe('TaskManager concurrency cap', () => {

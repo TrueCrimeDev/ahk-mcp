@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto';
 import { INVALID_PARAMS, INVALID_REQUEST, ProtocolError } from '@modelcontextprotocol/server';
 import type { Task, TaskStatus } from '@modelcontextprotocol/server';
 import logger from '../logger.js';
+import { getEnvConfig } from './env-config.js';
+import type { EnvConfig } from './env-config.js';
 import type { ToolResponse } from './server-interface.js';
 import { ErrorCode, ErrorCategory, ErrorSeverity, isRecoverable } from './error-types.js';
 import type { ErrorCodeType } from './error-types.js';
@@ -10,13 +12,22 @@ export type TaskInfo = Task;
 
 /** Principal used when a caller does not identify one (stdio, unauthenticated HTTP). */
 export const DEFAULT_PRINCIPAL = 'default';
-/** How long a task may stay 'working' before it is failed and its work aborted. */
+/**
+ * How long a task may stay 'working' before it is failed and its work aborted.
+ * Mirrors the AHK_MCP_TASK_TIMEOUT_MS default, which is what an unset option resolves to.
+ */
 export const DEFAULT_TASK_TIMEOUT_MS = 10 * 60_000;
-/** How many 'working' tasks one principal may hold at once. */
+/** How many 'working' tasks one principal may hold at once; mirrors AHK_MCP_TASK_MAX_CONCURRENT. */
 export const DEFAULT_MAX_CONCURRENT_TASKS = 8;
 
-// setTimeout silently clamps larger delays to 1ms, which would fail every task at once.
+// setTimeout silently clamps larger delays to 1ms, which would end a task at once.
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+/** The operator settings a TaskManager falls back to for options the caller leaves unset. */
+export type TaskManagerEnv = Pick<
+  EnvConfig,
+  'AHK_MCP_TASK_TIMEOUT_MS' | 'AHK_MCP_TASK_MAX_CONCURRENT'
+>;
 
 type TerminalStatus = Extract<TaskStatus, 'completed' | 'failed' | 'cancelled'>;
 
@@ -37,10 +48,15 @@ export interface TaskCompletionEvent {
 }
 
 export interface TaskManagerOptions {
-  /** Upper bound on a task's run time in ms. Default 10 minutes. */
+  /**
+   * Upper bound on a task's run time in ms; 0 disables it, leaving only the TTL.
+   * Same contract as AHK_MCP_TASK_TIMEOUT_MS, which it defaults to (10 minutes).
+   */
   taskTimeoutMs?: number;
-  /** Maximum concurrently 'working' tasks per principal. Default 8. */
+  /** Maximum concurrently 'working' tasks per principal. Defaults to AHK_MCP_TASK_MAX_CONCURRENT (8). */
   maxConcurrentTasksPerPrincipal?: number;
+  /** Source of the operator defaults; the parsed process environment unless a test injects one. */
+  env?: () => Readonly<TaskManagerEnv>;
   /** Called once per task when it ends; errors it throws or rejects with are logged and ignored. */
   onComplete?: (event: TaskCompletionEvent) => void | Promise<void>;
 }
@@ -97,16 +113,19 @@ export class TaskManager {
   private readonly onComplete?: TaskManagerOptions['onComplete'];
 
   constructor(options: TaskManagerOptions = {}) {
-    this.taskTimeoutMs = positiveInteger(
+    // Unset options fall back to the operator configuration, so a bare `new TaskManager()`
+    // (the v2 server's) honours AHK_MCP_TASK_TIMEOUT_MS and AHK_MCP_TASK_MAX_CONCURRENT.
+    // The accepted ranges equal the config schema's, so a valid config never throws here.
+    const env = options.env ?? getEnvConfig;
+    this.taskTimeoutMs = safeInteger(
       'taskTimeoutMs',
-      options.taskTimeoutMs,
-      DEFAULT_TASK_TIMEOUT_MS,
-      MAX_TIMER_DELAY_MS
+      options.taskTimeoutMs ?? env().AHK_MCP_TASK_TIMEOUT_MS,
+      0
     );
-    this.maxConcurrentTasks = positiveInteger(
+    this.maxConcurrentTasks = safeInteger(
       'maxConcurrentTasksPerPrincipal',
-      options.maxConcurrentTasksPerPrincipal,
-      DEFAULT_MAX_CONCURRENT_TASKS
+      options.maxConcurrentTasksPerPrincipal ?? env().AHK_MCP_TASK_MAX_CONCURRENT,
+      1
     );
     this.onComplete = options.onComplete;
   }
@@ -275,23 +294,34 @@ export class TaskManager {
    * One timer per working task fires at whichever comes first: the run-time limit or
    * the end of the TTL. Without it a stuck task would hold a concurrency slot, and a
    * tasks/result waiter would block, until some unrelated call happened to prune it.
+   * With the limit disabled and a null TTL there is nothing to arm: the task runs until
+   * it settles or is cancelled.
    */
   private armDeadline(record: TaskRecord): void {
-    const timeoutAt = record.createdAtMs + this.taskTimeoutMs;
-    const expiresFirst = record.expiresAt !== undefined && record.expiresAt < timeoutAt;
-    const deadline = expiresFirst ? (record.expiresAt as number) : timeoutAt;
+    const timeoutAt = this.taskTimeoutMs > 0 ? record.createdAtMs + this.taskTimeoutMs : undefined;
+    const { expiresAt } = record;
 
-    const timer = setTimeout(
-      () => {
-        record.deadlineTimer = undefined;
-        if (expiresFirst) {
-          this.expire(record);
-        } else {
-          this.timeOut(record);
-        }
-      },
-      Math.max(0, deadline - record.createdAtMs)
-    );
+    if (expiresAt !== undefined && (timeoutAt === undefined || expiresAt < timeoutAt)) {
+      this.scheduleDeadline(record, expiresAt, () => this.expire(record));
+    } else if (timeoutAt !== undefined) {
+      this.scheduleDeadline(record, timeoutAt, () => this.timeOut(record));
+    }
+  }
+
+  private scheduleDeadline(record: TaskRecord, deadline: number, onDeadline: () => void): void {
+    const remaining = Math.max(0, deadline - Date.now());
+    // A deadline past setTimeout's range is reached in hops rather than clamped, so a
+    // configured limit or TTL of weeks is honoured exactly.
+    const delay = Math.min(remaining, MAX_TIMER_DELAY_MS);
+
+    const timer = setTimeout(() => {
+      record.deadlineTimer = undefined;
+      if (delay < remaining) {
+        this.scheduleDeadline(record, deadline, onDeadline);
+      } else {
+        onDeadline();
+      }
+    }, delay);
     // A pending deadline must not keep an otherwise idle process alive.
     timer.unref?.();
     record.deadlineTimer = timer;
@@ -470,15 +500,11 @@ export class TaskManager {
   }
 }
 
-function positiveInteger(
-  name: string,
-  value: number | undefined,
-  fallback: number,
-  max: number = Number.MAX_SAFE_INTEGER
-): number {
-  if (value === undefined) return fallback;
-  if (!Number.isInteger(value) || value < 1 || value > max) {
-    throw new RangeError(`${name} must be an integer from 1 to ${max}; got ${value}`);
+function safeInteger(name: string, value: number, min: number): number {
+  if (!Number.isSafeInteger(value) || value < min) {
+    throw new RangeError(
+      `${name} must be an integer from ${min} to ${Number.MAX_SAFE_INTEGER}; got ${value}`
+    );
   }
   return value;
 }
