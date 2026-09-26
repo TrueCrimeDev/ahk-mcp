@@ -24,7 +24,7 @@
     "data",
     "docs/Modules",
     "inspector",
-    "scripts/*.ahk",
+    "scripts/**/*.ahk",
     "scripts/studio",
     "README.md",
     "LICENSE"
