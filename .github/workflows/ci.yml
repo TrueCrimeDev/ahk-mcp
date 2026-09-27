@@ -80,7 +80,7 @@ jobs:
         run: |
           $zip = Join-Path $env:RUNNER_TEMP "AutoHotkey_$env:AHK_VERSION.zip"
           $dir = Join-Path $env:RUNNER_TEMP 'AutoHotkey'
-          Invoke-WebRequest -Uri "https://www.autohotkey.com/download/2.0/AutoHotkey_$env:AHK_VERSION.zip" -OutFile $zip
+          Invoke-WebRequest -Uri "https://github.com/AutoHotkey/AutoHotkey/releases/download/v$env:AHK_VERSION/AutoHotkey_$env:AHK_VERSION.zip" -OutFile $zip
           $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
           if ($hash -ne $env:AHK_ZIP_SHA256) { throw "AutoHotkey archive hash mismatch: $hash" }
           Expand-Archive -Path $zip -DestinationPath $dir -Force
