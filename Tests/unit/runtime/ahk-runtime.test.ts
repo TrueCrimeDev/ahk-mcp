@@ -13,9 +13,14 @@ import {
   resetRuntimeCache,
   type ParsedAhkVersion,
 } from '../../../src/core/ahk-runtime.js';
-import { RunManager } from '../../../src/core/run-manager.js';
+import { RunManager, setHelperPathMapper } from '../../../src/core/run-manager.js';
 import { parseEnv } from '../../../src/core/env-config.js';
 import { createFakeSpawner, isTaskkill } from './fake-spawn.js';
+
+// The suite drives AutoHotkey as it runs on Windows. On a POSIX host the bundled
+// helpers sit at '/…' paths, which AutoHotkey would read as switches; stand in
+// for the WSL mapper the server installs there.
+if (process.platform !== 'win32') setHelperPathMapper(file => `C:${file}`);
 
 const PROBE_SCRIPT = 'C:\\srv\\scripts\\ahk\\version-probe.ahk';
 const PRELUDE = 'C:\\srv\\scripts\\ahk\\validate-prelude.ahk';

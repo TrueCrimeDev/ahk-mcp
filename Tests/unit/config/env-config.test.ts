@@ -138,10 +138,27 @@ describe('parseEnv values', () => {
     expect(invalid.config.AHK_MCP_LOG_LEVEL).toBe('warn');
   });
 
+  // No drive letters here: on POSIX ':' separates entries too.
   it('splits directory lists on semicolons and drops empty entries', () => {
-    const { config } = parse({ AHK_MCP_ALLOWED_DIRS: 'C:\\Scripts; D:\\Shared ;;' });
-    expect(config.AHK_MCP_ALLOWED_DIRS).toEqual(['C:\\Scripts', 'D:\\Shared']);
+    const { config } = parse({ AHK_MCP_ALLOWED_DIRS: '/srv/scripts; /srv/shared ;;' });
+    expect(config.AHK_MCP_ALLOWED_DIRS).toEqual(['/srv/scripts', '/srv/shared']);
   });
+
+  (process.platform === 'win32' ? it : it.skip)(
+    'keeps drive letters in directory lists on Windows',
+    () => {
+      const { config } = parse({ AHK_MCP_ALLOWED_DIRS: 'C:\\Scripts; D:\\Shared' });
+      expect(config.AHK_MCP_ALLOWED_DIRS).toEqual(['C:\\Scripts', 'D:\\Shared']);
+    }
+  );
+
+  (process.platform === 'win32' ? it.skip : it)(
+    'also splits directory lists on colons on POSIX',
+    () => {
+      const { config } = parse({ AHK_MCP_ALLOWED_DIRS: '/srv/scripts:/srv/shared' });
+      expect(config.AHK_MCP_ALLOWED_DIRS).toEqual(['/srv/scripts', '/srv/shared']);
+    }
+  );
 
   it('splits host and origin lists on commas', () => {
     const { config } = parse({

@@ -4,7 +4,11 @@ import {
   WindowDetectError,
   detectWindows,
 } from '../../../src/core/window-detect.js';
-import { RunManager, getHelperScriptPath } from '../../../src/core/run-manager.js';
+import {
+  RunManager,
+  getHelperScriptPath,
+  setHelperPathMapper,
+} from '../../../src/core/run-manager.js';
 import {
   UnavailableError,
   configureRuntimeResolver,
@@ -12,6 +16,11 @@ import {
 } from '../../../src/core/ahk-runtime.js';
 import { parseEnv } from '../../../src/core/env-config.js';
 import { createFakeSpawner, flushMicrotasks, type FakeChild } from './fake-spawn.js';
+
+// The suite drives AutoHotkey as it runs on Windows. On a POSIX host the bundled
+// helpers sit at '/…' paths, which AutoHotkey would read as switches; stand in
+// for the WSL mapper the server installs there.
+if (process.platform !== 'win32') setHelperPathMapper(file => `C:${file}`);
 
 const EXE = 'C:\\AutoHotkey\\v2\\AutoHotkey64.exe';
 
