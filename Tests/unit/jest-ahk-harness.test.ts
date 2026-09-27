@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -18,9 +17,12 @@ const REQUIRED_MESSAGE = 'AHK_TEST_REQUIRE_RUNTIME=1 but no AutoHotkey v2 execut
 let dir: string;
 
 beforeAll(() => {
-  // Long form: Windows runners keep TEMP as a short name (RUNNER~1), and the
-  // child Jest then finds no suite under --roots.
-  dir = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'ahk-mcp-harness-')));
+  // Under the repo (tmp/ is git-ignored), not os.tmpdir(): Jest keeps file paths
+  // relative to rootDir, so a --roots on another drive (Windows runners check
+  // out to D:, TEMP is on C:) finds no suite.
+  const scratchRoot = path.join(repoRoot, 'tmp');
+  mkdirSync(scratchRoot, { recursive: true });
+  dir = mkdtempSync(path.join(scratchRoot, 'ahk-mcp-harness-'));
   writeFileSync(
     path.join(dir, 'harness-probe.test.js'),
     "test('harness probe', () => { expect(1).toBe(1); });\n",
