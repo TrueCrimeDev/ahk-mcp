@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { findAutoHotkey } from '../../setup/ahk-runtime.js';
@@ -38,7 +38,8 @@ async function waitUntilGone(pid: number, ms = 3000): Promise<boolean> {
   };
 
   beforeAll(async () => {
-    dir = await mkdtemp(path.join(os.tmpdir(), 'ahk-mcp-runs-'));
+    // Long form: AutoHotkey reports expanded paths, and runners keep TEMP short (RUNNER~1).
+    dir = await realpath(await mkdtemp(path.join(os.tmpdir(), 'ahk-mcp-runs-')));
   });
 
   afterAll(async () => {
@@ -149,7 +150,7 @@ async function waitUntilGone(pid: number, ms = 3000): Promise<boolean> {
   let dir: string;
 
   beforeAll(async () => {
-    dir = await mkdtemp(path.join(os.tmpdir(), 'ahk-mcp-windows-'));
+    dir = await realpath(await mkdtemp(path.join(os.tmpdir(), 'ahk-mcp-windows-')));
   });
 
   afterAll(async () => {

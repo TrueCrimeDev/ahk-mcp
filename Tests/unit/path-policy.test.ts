@@ -200,12 +200,14 @@ describe('allowed roots', () => {
 
   it('allows a not-yet-created file inside a root', async () => {
     const target = path.join(allowed, 'new', 'x.ahk');
-    await expect(assertAllowedPath(target, 'write')).resolves.toBe(target);
+    await expect(assertAllowedPath(target, 'write')).resolves.toBe(
+      path.join(fs.realpathSync.native(allowed), 'new', 'x.ahk')
+    );
   });
 
   it('resolves relative paths against the working directory', async () => {
     await expect(assertAllowedPath('local.ahk', 'read')).resolves.toBe(
-      path.join(project, 'local.ahk')
+      fs.realpathSync.native(path.join(project, 'local.ahk'))
     );
   });
 
@@ -421,9 +423,8 @@ describe('symbolic links', () => {
     await expect(assertAllowedPath(path.join(linkedRoot, 'secret.txt'), 'read')).resolves.toBe(
       canonical
     );
-    await expect(assertAllowedPath(path.join(outside, 'secret.txt'), 'read')).resolves.toBe(
-      canonical
-    );
+    // Canonical form: a short name (RUNNER~1) is not lexically inside the root.
+    await expect(assertAllowedPath(canonical, 'read')).resolves.toBe(canonical);
   });
 });
 

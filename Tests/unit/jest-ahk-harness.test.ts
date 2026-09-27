@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -18,7 +18,9 @@ const REQUIRED_MESSAGE = 'AHK_TEST_REQUIRE_RUNTIME=1 but no AutoHotkey v2 execut
 let dir: string;
 
 beforeAll(() => {
-  dir = mkdtempSync(path.join(os.tmpdir(), 'ahk-mcp-harness-'));
+  // Long form: Windows runners keep TEMP as a short name (RUNNER~1), and the
+  // child Jest then finds no suite under --roots.
+  dir = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'ahk-mcp-harness-')));
   writeFileSync(
     path.join(dir, 'harness-probe.test.js'),
     "test('harness probe', () => { expect(1).toBe(1); });\n",

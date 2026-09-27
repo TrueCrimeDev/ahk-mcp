@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { findAutoHotkey } from '../../setup/ahk-runtime.js';
@@ -40,7 +40,8 @@ const forkPath = process.env.AHK_MCP_FORK_AHK_PATH?.trim();
   };
 
   beforeAll(async () => {
-    root = await mkdtemp(path.join(os.tmpdir(), 'ahk-mcp-runtime-'));
+    // Long form: AutoHotkey reports expanded paths, and runners keep TEMP short (RUNNER~1).
+    root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'ahk-mcp-runtime-')));
     // A space in the path checks the quoting of both the script and /include.
     dir = path.join(root, 'allowed', 'with space');
     await mkdir(dir, { recursive: true });

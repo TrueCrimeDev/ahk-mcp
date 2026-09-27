@@ -110,7 +110,7 @@ describe('resolvePathArgs', () => {
 
   it('accepts a file that does not exist yet and an uppercase extension', async () => {
     const result = await resolvePathArgs([FILE], { path: path.join(root, 'New.AH2') });
-    expect(result.ok && result.args.path).toBe(path.join(root, 'New.AH2'));
+    expect(result.ok && result.args.path).toBe(path.join(fs.realpathSync.native(root), 'New.AH2'));
   });
 
   it('refuses a path outside the roots with PATH_NOT_ALLOWED and the roots', async () => {
