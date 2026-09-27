@@ -468,7 +468,7 @@ describe('getEffectiveOperatorSettings', () => {
 });
 
 describe('default reporter', () => {
-  let stderr: ReturnType<typeof jest.spyOn>;
+  let stderr: jest.SpiedFunction<typeof process.stderr.write>;
   const savedLevel = process.env.AHK_MCP_LOG_LEVEL;
 
   beforeEach(() => {

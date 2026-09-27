@@ -338,7 +338,7 @@ describe('once-only warnings', () => {
   });
 
   describe('default sink', () => {
-    let stderr: ReturnType<typeof jest.spyOn>;
+    let stderr: jest.SpiedFunction<typeof process.stderr.write>;
     let stdout: ReturnType<typeof jest.spyOn>;
 
     beforeEach(() => {
