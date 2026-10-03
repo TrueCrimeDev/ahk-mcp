@@ -3,18 +3,12 @@ import {
   createMcpHandler,
   ProtocolError,
   INVALID_PARAMS,
-  METHOD_NOT_FOUND,
   SUPPORTED_PROTOCOL_VERSIONS,
   RELATED_TASK_META_KEY,
-  PROTOCOL_VERSION_META_KEY,
-  CLIENT_CAPABILITIES_META_KEY,
   inputRequired,
   acceptedContent,
-  isInputRequiredResult,
   type InputRequiredResult,
-  type ClientCapabilities,
   type ServerContext,
-  type ListToolsResult,
   type CallToolResult,
 } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
@@ -45,13 +39,15 @@ import type { Express, NextFunction, Request, Response } from 'express';
 import { initializeDataLoader, getAhkIndex } from './core/loader.js';
 import { SERVER_VERSION } from './version.js';
 import logger from './logger.js';
-import { ToolRegistry } from './core/tool-registry.js';
+import { ToolRegistry, registerToolHandlers } from './tooling/registry.js';
+import { createLegacyToolDefinitions } from './tooling/legacy-tools.js';
+import { resolveToolSurface } from './tooling/toolsets.js';
+import { requestEra, supportsFormElicitation } from './server/era.js';
 import { envConfig } from './core/env-config.js';
-import { createErrorResponse, ErrorResponseBuilder, ErrorCode } from './utils/response-helpers.js';
+import { createErrorResponse } from './utils/response-helpers.js';
 import { TaskManager } from './core/task-manager.js';
 
 import { logDebugEvent, logDebugError } from './debug-journal.js';
-import { getUnifiedLogger } from './core/unified-logger.js';
 import { startDapServer, type DapServerHandle } from './dap/index.js';
 // Import tool classes and definitions
 import { AhkDiagnosticsTool } from './tools/ahk-analyze-diagnostics.js';
@@ -93,39 +89,23 @@ import { AhkCloudValidateTool } from './tools/ahk-cloud-validate.js';
 import { AhkDebugDBGpTool } from './tools/ahk-debug-dbgp.js';
 import { AhkEvalTool, AhkReplResetTool, replSession } from './tools/ahk-eval.js';
 import { processManager } from './core/process-manager.js';
-import { autoDetect, getActiveFilePath } from './core/active-file.js';
-import { toolSettings } from './core/tool-settings.js';
+import { getActiveFilePath } from './core/active-file.js';
 import { configManager } from './core/path-converter-config.js';
 import { pathConverter } from './utils/path-converter.js';
 import { pathInterceptor } from './core/path-interceptor.js';
 import { observabilityServer } from './core/observability-server.js';
 import './core/opentelemetry.js'; // Initialize OpenTelemetry (if enabled)
-import { tracer } from './core/tracing.js';
-import {
-  getStandardToolDefinitions,
-  getToolMetadataByName,
-  toolSupportsTasks,
-} from './core/tool-metadata.js';
 
-/** Arguments that name a target file; see the active-file detection in tools/call. */
-const FILE_PATH_ARGUMENT_KEYS = new Set(['filePath', 'file', 'path', 'scriptPath', 'targetFile']);
 import type { ToolResponse } from './core/server-interface.js';
-import { extractProgressToken, progressNotifier } from './core/progress-notifier.js';
 import { clientRoots } from './core/client-roots.js';
 import { mountDashboard } from './dashboard.js';
 import { createStudioService } from './studio/create-studio.js';
 import { mountStudio, mountStudioHeaderBoundary, sendStudioError } from './studio/studio-http.js';
-import { toolAnalytics } from './core/tool-analytics.js';
-import {
-  getCurrentRootDirectories,
-  runWithMcpRequestContextAsync,
-} from './core/mcp-request-context.js';
 import { resourceSubscriptions } from './core/resource-subscriptions.js';
 import {
   ANALYTICS_APP_URI,
   MCP_APPS_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
-  clientSupportsMcpApps,
   createAnalyticsAppHtml,
 } from './core/mcp-apps.js';
 
@@ -256,8 +236,6 @@ export class AutoHotkeyMcpServer {
     this.ahkEvalToolInstance = new AhkEvalTool();
     this.ahkReplResetToolInstance = new AhkReplResetTool();
 
-    this.toolRegistry = new ToolRegistry(this);
-
     // Initialize workflow tool with dependencies (must be after other tools are initialized)
     this.ahkWorkflowAnalyzeFixRunToolInstance = new AhkWorkflowAnalyzeFixRunTool(
       this.ahkAnalyzeToolInstance,
@@ -266,8 +244,10 @@ export class AutoHotkeyMcpServer {
       this.ahkLspToolInstance
     );
 
-    // Initialize Smart Orchestrator after toolRegistry is created
+    // Initialize Smart Orchestrator before building the registry
     this.ahkSmartOrchestratorToolInstance = new AhkSmartOrchestratorTool();
+
+    this.toolRegistry = new ToolRegistry(this.createToolDefinitions());
 
     // Initialize path conversion system
     this.initializePathConversion();
@@ -375,54 +355,6 @@ export class AutoHotkeyMcpServer {
     });
   }
 
-  private injectRequestContext(
-    args: unknown,
-    progressToken: string | number | undefined
-  ): Record<string, unknown> | unknown {
-    if (!progressToken || !args || typeof args !== 'object' || Array.isArray(args)) {
-      return args;
-    }
-
-    return {
-      ...(args as Record<string, unknown>),
-      _progressToken: progressToken,
-    };
-  }
-
-  /**
-   * Whether this request is being served under the modern (2026-07-28) era.
-   *
-   * Modern requests carry their revision in `_meta`; legacy requests negotiated it once
-   * via `initialize` and carry nothing per-request. The distinction is load-bearing: the
-   * SDK's push-style server-to-client calls (`elicitInput`, `requestSampling`,
-   * `listRoots`) throw on a modern request, which must use Multi Round-Trip Requests
-   * (SEP-2322) instead.
-   */
-  private isModernRequest(ctx: ServerContext): boolean {
-    const version = ctx.mcpReq._meta?.[PROTOCOL_VERSION_META_KEY];
-    return typeof version === 'string' && version >= '2026-07-28';
-  }
-
-  private clientSupportsFormElicitation(server: Server, ctx?: ServerContext): boolean {
-    // `getClientCapabilities()` is handshake-era state and is empty on a modern request,
-    // where capabilities travel per-request in `_meta` instead. Read the envelope first
-    // and fall back to the stored capabilities for legacy connections.
-    // The SDK decodes the modern envelope into `ctx.mcpReq.envelope`; the raw `_meta`
-    // key is checked too so a hand-built request still resolves.
-    const envelopeBag = ctx?.mcpReq.envelope as Record<string, unknown> | undefined;
-    const fromEnvelope = (envelopeBag?.clientCapabilities ??
-      ctx?.mcpReq._meta?.[CLIENT_CAPABILITIES_META_KEY]) as ClientCapabilities | undefined;
-    const elicitation = (fromEnvelope ?? server.getClientCapabilities())?.elicitation;
-    if (!elicitation) {
-      return false;
-    }
-
-    const hasFormCapability = elicitation.form !== undefined;
-    const hasUrlCapability = elicitation.url !== undefined;
-
-    return hasFormCapability || (!hasFormCapability && !hasUrlCapability);
-  }
-
   /**
    * Resolves any missing arguments a tool needs before execution.
    *
@@ -461,7 +393,7 @@ export class AutoHotkeyMcpServer {
       return args;
     }
 
-    if (!this.clientSupportsFormElicitation(server, ctx)) {
+    if (!supportsFormElicitation(server, ctx)) {
       return args;
     }
 
@@ -482,7 +414,7 @@ export class AutoHotkeyMcpServer {
     // Modern era: server-initiated requests are gone. Return an InputRequiredResult and
     // let the client re-issue the original tools/call carrying `inputResponses`
     // (SEP-2322). The retry is handled at the top of this method.
-    if (ctx && this.isModernRequest(ctx)) {
+    if (ctx && requestEra(ctx) !== 'legacy') {
       return inputRequired({
         inputRequests: {
           [AHK_RUN_FILE_PATH_INPUT]: inputRequired.elicit({ message, requestedSchema }),
@@ -572,368 +504,46 @@ export class AutoHotkeyMcpServer {
     };
   }
 
-  private isListedTool(name: string): boolean {
-    if (getToolMetadataByName(name)) return true;
-    return envConfig.useSSEMode() && (name === 'search' || name === 'fetch');
-  }
-
-  private getStandardToolsForClient(server: Server) {
-    const supportsApps = clientSupportsMcpApps(server);
-    return getStandardToolDefinitions()
-      .filter(tool => toolSettings.isToolAvailable(tool.name))
-      .map(tool => {
-        if (tool.name !== 'AHK_Analytics' || !supportsApps) {
-          return tool;
-        }
-
-        return {
-          ...tool,
-          _meta: {
-            ...tool._meta,
-            ui: {
-              resourceUri: ANALYTICS_APP_URI,
-              visibility: ['model', 'app'],
-            },
-          },
-        };
-      });
-  }
-
-  private async notifyToolCatalogChanged(previousToolNames: string[]): Promise<void> {
-    const currentToolNames = getStandardToolDefinitions()
-      .filter(tool => toolSettings.isToolAvailable(tool.name))
-      .map(tool => tool.name);
-    if (previousToolNames.join('\n') === currentToolNames.join('\n')) {
-      return;
-    }
-
-    await Promise.all(
-      [...this.connectedServers].map(async connectedServer => {
-        try {
-          await connectedServer.sendToolListChanged();
-        } catch (error) {
-          logger.debug('Unable to send tools/list_changed notification', error);
-        }
-      })
-    );
-  }
-
   /**
    * Setup MCP tool handlers
    */
+  private createToolDefinitions() {
+    return createLegacyToolDefinitions(
+      this,
+      (name, args, ctx) =>
+        this.prepareToolArguments(ctx.server, name, args, ctx.signal, ctx.request),
+      envConfig.useSSEMode()
+    );
+  }
+
   private setupToolHandlers(server: Server): void {
-    // List tools handler
-    server.setRequestHandler('tools/list', async () => {
-      logger.debug('Listing available AutoHotkey tools');
-
-      // Check if we're in SSE mode (for ChatGPT compatibility)
-      const useSSE = envConfig.useSSEMode();
-      logDebugEvent('tools.list', {
-        status: 'start',
-        message: useSSE ? 'Including SSE-specific tools' : 'Standard tool listing',
-      });
-
-      const standardTools = this.getStandardToolsForClient(server);
-
-      // Add ChatGPT-compatible tools when in SSE mode
-      const chatGPTTools = useSSE
-        ? [
-            {
-              name: 'search',
-              title: 'Search AutoHotkey Documentation',
-              description: 'Search AutoHotkey v2 documentation and code examples',
-              annotations: {
-                title: 'Search AutoHotkey Documentation',
-                readOnlyHint: true,
-                destructiveHint: false,
-                idempotentHint: true,
-                openWorldHint: false,
-              },
-              execution: { taskSupport: 'forbidden' as const },
-              inputSchema: {
-                type: 'object',
-                properties: {
-                  query: {
-                    type: 'string',
-                    description: 'Search query for AutoHotkey documentation',
-                  },
-                },
-                required: ['query'],
-              },
-            },
-            {
-              name: 'fetch',
-              title: 'Fetch AutoHotkey Documentation',
-              description: 'Fetch detailed AutoHotkey documentation for a specific item',
-              annotations: {
-                title: 'Fetch AutoHotkey Documentation',
-                readOnlyHint: true,
-                destructiveHint: false,
-                idempotentHint: true,
-                openWorldHint: false,
-              },
-              execution: { taskSupport: 'forbidden' as const },
-              inputSchema: {
-                type: 'object',
-                properties: {
-                  id: {
-                    type: 'string',
-                    description: 'Unique identifier for the AutoHotkey documentation item',
-                  },
-                },
-                required: ['id'],
-              },
-            },
-          ]
-        : [];
-      // 2026-07-28 says servers SHOULD return tools in a deterministic order: it lets
-      // clients cache the listing and keeps LLM prompt-cache hit rates up, since an
-      // unstable order invalidates the cached prefix on every call.
-      const tools = [...standardTools, ...chatGPTTools].sort((a, b) =>
-        a.name.localeCompare(b.name)
-      );
-      logDebugEvent('tools.list', {
-        status: 'success',
-        message: `Returned ${tools.length} tools`,
-        details: { mode: useSSE ? 'sse' : 'stdio' },
-      });
-
-      return {
-        // The SDK infers `Tool` from its own Zod schema, whose recursive JSON Schema
-        // node type nests one level deeper than the structurally-identical type this
-        // repo builds. The values are wire-compatible; only the inferred depth differs.
-        tools: tools as unknown as ListToolsResult['tools'],
-        ...this.getDiscoveryCacheHints(),
-      };
-    });
-
-    // Call tool handler
-    // Returns are cast to CallToolResult at the boundary for two reasons:
-    //  1. this repo's ToolResponse is structurally a CallToolResult but lacks the
-    //     open index signature the SDK's inferred type carries;
-    //  2. a task handle is a valid tools/call result under the
-    //     io.modelcontextprotocol/tasks extension, which has no v2 SDK runtime and so
-    //     is absent from the SDK's HandlerResultTypeMap.
-    server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult> => {
-      const params = request.params as typeof request.params & { task?: { ttl?: number } };
-      const { name, arguments: args } = params;
-      const taskRequest = params.task;
-      const startTime = Date.now();
-      const toolTimeoutMs = envConfig.getToolTimeoutMs();
-      const progressToken = extractProgressToken(params);
-
-      // Only tools the client can see are callable. An unknown name is a protocol error
-      // (-32602), not a tool result; hidden legacy handlers stay unreachable.
-      if (!this.isListedTool(name)) {
-        throw new ProtocolError(INVALID_PARAMS, `Unknown tool: ${name}`);
-      }
-
-      const previousToolNames =
-        name === 'AHK_Settings'
-          ? getStandardToolDefinitions()
-              .filter(tool => toolSettings.isToolAvailable(tool.name))
-              .map(tool => tool.name)
-          : undefined;
-
-      // Route notifications/progress to the requesting client for the duration of the
-      // call; tools read the token via the injected _progressToken argument.
-      if (progressToken !== undefined) {
-        progressNotifier.register(progressToken, notification => ctx.mcpReq.notify(notification));
-      }
-      let releaseProgressToken = progressToken !== undefined;
-
-      // Unified logging: generate call ID and log start
-      const callId = `${name}-${startTime}-${Math.random().toString(36).slice(2, 8)}`;
-      const unifiedLog = getUnifiedLogger();
-      unifiedLog.toolStart(callId, name, (args as Record<string, unknown>) || {});
-
-      // A tool pointed at a file makes it the active file. Only path-typed arguments count:
-      // scanning free text (a doc query, code, a note) let any mentioned path silently
-      // retarget later edits that fall back to the active file.
-      if (toolSettings.isFileDetectionAllowed() && args && typeof args === 'object') {
-        for (const [key, value] of Object.entries(args)) {
-          if (typeof value === 'string' && FILE_PATH_ARGUMENT_KEYS.has(key)) {
-            autoDetect(value);
-          }
-        }
-      }
-
-      try {
-        if (taskRequest && !toolSupportsTasks(name)) {
-          throw new ProtocolError(
-            METHOD_NOT_FOUND,
-            `Tool '${name}' does not support task-augmented execution`
-          );
-        }
-
-        const preparedArgs = await this.prepareToolArguments(
-          server,
-          name,
-          args,
-          ctx.mcpReq.signal,
-          ctx
-        );
-
-        // A multi-round-trip handler returns its interim result verbatim; the client
-        // supplies the missing input and re-issues this call (SEP-2322).
-        if (isInputRequiredResult(preparedArgs)) {
-          return preparedArgs as unknown as CallToolResult;
-        }
-
-        const requestRootDirectories = await clientRoots.resolveForRequest(server, ctx);
-        const argsWithContext = this.injectRequestContext(preparedArgs, progressToken);
-
-        if (taskRequest) {
-          const requestedTtl =
-            typeof taskRequest.ttl === 'number' &&
-            Number.isFinite(taskRequest.ttl) &&
-            taskRequest.ttl > 0
-              ? taskRequest.ttl
-              : undefined;
+    registerToolHandlers(server, this.toolRegistry, {
+      resolveRoots: (connection, ctx) => clientRoots.resolveForRequest(connection, ctx),
+      tasks: {
+        create: job => {
           const maximumTtl = this.getPositiveIntEnv('AHK_MCP_MAX_TASK_TTL_MS', 86_400_000);
-          const defaultTtl = Math.min(
-            this.getPositiveIntEnv('AHK_MCP_DEFAULT_TASK_TTL_MS', 3_600_000),
+          const ttl = Math.min(
+            job.requestedTtl ?? this.getPositiveIntEnv('AHK_MCP_DEFAULT_TASK_TTL_MS', 3_600_000),
             maximumTtl
           );
-          const ttl = Math.min(requestedTtl ?? defaultTtl, maximumTtl);
-          const pollInterval = envConfig.getTaskPollIntervalMs();
-          // A task's TTL controls result retention, not how long its work may execute.
-          const taskTimeoutMs = envConfig.getTaskTimeoutMs();
-
-          const task = this.getTaskManager(server).createTask({
-            toolName: name,
+          const task = this.taskManager.createTask({
+            toolName: job.toolName,
+            principal: job.principal,
             ttl,
-            pollInterval,
-            execute: taskSignal =>
-              runWithMcpRequestContextAsync(
-                { rootDirectories: requestRootDirectories, abortSignal: taskSignal },
-                () => this.executeToolWithTimeout(name, argsWithContext, taskTimeoutMs, taskSignal)
-              ).finally(() => {
-                // The task outlives this request, so its progress sender does too.
-                if (progressToken !== undefined) progressNotifier.unregister(progressToken);
-              }),
+            pollInterval: envConfig.getTaskPollIntervalMs(),
+            execute: signal => job.run(signal) as Promise<ToolResponse>,
           });
-          releaseProgressToken = false;
-
-          // Unified logging: task queued (execution is async)
-          unifiedLog.toolEnd(callId, {
-            content: [{ type: 'text', text: `task queued: ${task.taskId}` }],
-          });
-
-          // A tools/call body carrying `task` must still carry `content`: the SDK rejects
-          // a task-handle result that would otherwise default into an empty success.
           return {
             content: [
               {
                 type: 'text',
-                text: `Task ${task.taskId} queued for ${name} (status: ${task.status}). Poll tasks/get for progress.`,
+                text: `Task ${task.taskId} queued for ${job.toolName} (status: ${task.status}). Poll tasks/get for progress.`,
               },
             ],
             task,
           } as unknown as CallToolResult;
-        }
-
-        await progressNotifier.reportIndeterminate(progressToken, `${name} started`);
-
-        // Execute tool with distributed tracing
-        const result = await runWithMcpRequestContextAsync(
-          { rootDirectories: requestRootDirectories, abortSignal: ctx.mcpReq.signal },
-          () =>
-            tracer.trace(
-              name,
-              async span => {
-                // Add tool metadata to span
-                span.attributes.tool = name;
-                span.attributes.argCount =
-                  argsWithContext && typeof argsWithContext === 'object'
-                    ? Object.keys(argsWithContext as Record<string, unknown>).length
-                    : 0;
-
-                // Execute the tool
-                const toolResult = await this.executeToolWithTimeout(
-                  name,
-                  argsWithContext,
-                  toolTimeoutMs,
-                  ctx.mcpReq.signal
-                );
-
-                // Add result metadata to span
-                if (toolResult && toolResult.content) {
-                  span.attributes.resultContentCount = toolResult.content.length;
-                  span.attributes.isError = toolResult.isError || false;
-                }
-
-                return toolResult as unknown as CallToolResult;
-              },
-              { toolType: name.split('_')[1] || 'unknown' }
-            )
-        );
-
-        await progressNotifier.reportComplete(progressToken, `${name} completed`);
-
-        // Record analytics
-        const duration = Date.now() - startTime;
-        const isError =
-          result && typeof result === 'object' && 'isError' in result && result.isError;
-        const preview =
-          result &&
-          typeof result === 'object' &&
-          'content' in result &&
-          Array.isArray(result.content)
-            ? result.content
-                .map((c: { type: string; text?: string }) =>
-                  c.type === 'text' ? c.text : `[${c.type}]`
-                )
-                .join('\n')
-            : undefined;
-        toolAnalytics.recordCall(name, !isError, duration, undefined, preview);
-
-        // Unified logging: log success
-        unifiedLog.toolEnd(callId, result);
-        if (previousToolNames) {
-          await this.notifyToolCatalogChanged(previousToolNames);
-        }
-        return result as unknown as CallToolResult;
-      } catch (error) {
-        if (error instanceof ProtocolError) {
-          throw error;
-        }
-
-        // Record analytics for failures
-        toolAnalytics.recordCall(
-          name,
-          false,
-          Date.now() - startTime,
-          error instanceof Error ? error : new Error(String(error))
-        );
-
-        await progressNotifier.reportComplete(progressToken, `${name} failed`);
-
-        // Unified logging: log error
-        unifiedLog.toolError(callId, error instanceof Error ? error : new Error(String(error)));
-
-        // notifications/message, filtered by the client's logging/setLevel threshold.
-        void ctx.mcpReq
-          .log('error', {
-            tool: name,
-            message: error instanceof Error ? error.message : String(error),
-          })
-          .catch(() => undefined);
-
-        // Build rich error response with metadata
-        return ErrorResponseBuilder.fromError(error, ErrorCode.TOOL_EXECUTION_FAILED)
-          .tool(request.params.name)
-          .operation('tool execution')
-          .details({
-            toolName: request.params.name,
-            arguments: request.params.arguments,
-          })
-          .build() as unknown as CallToolResult;
-      } finally {
-        if (releaseProgressToken && progressToken !== undefined) {
-          progressNotifier.unregister(progressToken);
-        }
-      }
+        },
+      },
     });
   }
 
@@ -1019,60 +629,6 @@ export class AutoHotkeyMcpServer {
 
   private getTaskManager(_server: Server): TaskManager {
     return this.taskManager;
-  }
-
-  private async executeToolWithTimeout(
-    toolName: string,
-    args: unknown,
-    timeoutMs: number,
-    signal?: AbortSignal
-  ): Promise<ToolResponse> {
-    if (signal?.aborted) {
-      throw signal.reason instanceof Error ? signal.reason : new Error('Tool request cancelled');
-    }
-
-    // One controller per call, aborted on timeout or client cancellation. Tools read it
-    // from the request context and pass it to spawn(), so the work actually stops instead
-    // of running on (with its child process) after the caller has given up.
-    const controller = new AbortController();
-    let timeoutId: NodeJS.Timeout | undefined;
-    let abortHandler: (() => void) | undefined;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      if (timeoutMs > 0) {
-        timeoutId = setTimeout(() => {
-          const error = new Error(`Tool '${toolName}' timed out after ${timeoutMs}ms`);
-          controller.abort(error);
-          reject(error);
-        }, timeoutMs);
-      }
-
-      if (signal) {
-        abortHandler = () => {
-          const error =
-            signal.reason instanceof Error ? signal.reason : new Error('Tool request cancelled');
-          controller.abort(error);
-          reject(error);
-        };
-        signal.addEventListener('abort', abortHandler, { once: true });
-      }
-    });
-
-    try {
-      return await Promise.race([
-        runWithMcpRequestContextAsync(
-          { rootDirectories: getCurrentRootDirectories(), abortSignal: controller.signal },
-          () => this.toolRegistry.executeTool(toolName, args)
-        ),
-        timeoutPromise,
-      ]);
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      if (signal && abortHandler) {
-        signal.removeEventListener('abort', abortHandler);
-      }
-    }
   }
 
   /**
@@ -2488,6 +2044,12 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
         status: 'start',
         message: 'Loading AutoHotkey documentation',
       });
+
+      // Resolve the operator-owned surface before either transport serves requests.
+      this.toolRegistry = new ToolRegistry(this.createToolDefinitions(), {
+        surface: await resolveToolSurface(),
+      });
+      this.setupToolHandlers(this.server);
 
       // Load AutoHotkey documentation data
       await initializeDataLoader();

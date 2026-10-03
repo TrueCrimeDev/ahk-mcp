@@ -26,6 +26,8 @@ export interface PathArgSpec {
   /** Top-level argument name. An absent (undefined or null) argument is skipped. */
   readonly key: string;
   readonly access: PathAccess;
+  /** Upgrade a read to a write for a mode flag, before any canonicalization. */
+  readonly writeWhen?: { readonly key: string; readonly value: string | boolean };
   readonly kind: 'file' | 'dir';
   /** Allowed extensions for a file, case-insensitive ('.ahk' or 'ahk'); omitted or empty = any. */
   readonly extensions?: readonly string[];
@@ -139,7 +141,10 @@ export async function resolvePathArgs<T extends Record<string, unknown>>(
   for (const { spec, native, extensions } of planned) {
     let canonical: string;
     try {
-      canonical = await assertAllowedPath(native, spec.access);
+      canonical = await assertAllowedPath(
+        native,
+        spec.writeWhen && args[spec.writeWhen.key] === spec.writeWhen.value ? 'write' : spec.access
+      );
     } catch (error) {
       if (error instanceof PathNotAllowedError) return fromPolicyError(spec.key, error);
       throw error;

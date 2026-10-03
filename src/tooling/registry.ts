@@ -522,6 +522,11 @@ export class ToolRegistry {
       return Promise.resolve(tool.handler(args, ctx));
     })) as ToolSuccess<unknown>;
 
+    // Legacy handler errors have no success payload to validate. Preserve their content.
+    if (success?.response?.isError) {
+      return { result: success.response, ok: false, errorCode: 'INTERNAL' };
+    }
+
     // The work is done whatever happens to the response, so the files count as touched.
     this.emitTouched(success?.touched);
 
@@ -547,7 +552,23 @@ export class ToolRegistry {
       links: success.links,
       mirror: this.textMirror,
     });
-    return { result: state.server.projectCallToolResult(result, tool.outputJsonSchema), ok: true };
+    const response = success.response
+      ? {
+          ...success.response,
+          structuredContent: result.structuredContent,
+          content:
+            this.textMirror === 'json'
+              ? [
+                  ...result.content,
+                  ...success.response.content.filter(block => block.type !== 'text'),
+                ]
+              : success.response.content,
+        }
+      : result;
+    return {
+      result: state.server.projectCallToolResult(response, tool.outputJsonSchema),
+      ok: true,
+    };
   }
 
   private guardConcurrency<T>(

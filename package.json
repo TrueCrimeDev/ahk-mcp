@@ -81,7 +81,7 @@
     "express-rate-limit": "^8.5.2",
     "flexsearch": "^0.7.43",
     "prom-client": "^15.1.1",
-    "zod": "^4.2.0"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",

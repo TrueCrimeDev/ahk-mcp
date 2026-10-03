@@ -11,7 +11,12 @@
  * - path arguments name real top-level input fields.
  */
 
-import type { InputRequiredResult, Server, ServerContext } from '@modelcontextprotocol/server';
+import type {
+  CallToolResult,
+  InputRequiredResult,
+  Server,
+  ServerContext,
+} from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { ResolvedRuntime } from '../core/ahk-runtime.js';
 import type { FileTouchKind } from '../server/change-notifier.js';
@@ -57,6 +62,8 @@ export interface FileTouch {
 export interface ToolSuccess<Out> {
   /** Validated against the output schema; the parsed value becomes structuredContent. */
   readonly structured: Out;
+  /** Existing handlers may retain rich MCP content; success output is still validated. */
+  readonly response?: CallToolResult;
   /** A rendering to use instead of the compact text (ignored when AHK_MCP_TEXT_MIRROR=json). */
   readonly text?: string;
   /** Appended as resource_link content blocks. */
@@ -260,6 +267,8 @@ export function defineTool<In extends ToolInputSchema, Out extends ToolOutputSch
     if (seen.has(arg.key)) fail(`pathArgs lists '${arg.key}' twice`);
     seen.add(arg.key);
     if (arg.access !== 'read' && arg.access !== 'write') fail(`pathArgs '${arg.key}' needs access`);
+    if (arg.writeWhen && !inputKeys.includes(arg.writeWhen.key))
+      fail(`pathArgs '${arg.key}' names an unknown write flag '${arg.writeWhen.key}'`);
     if (arg.kind !== 'file' && arg.kind !== 'dir') fail(`pathArgs '${arg.key}' needs kind`);
   }
 
@@ -292,7 +301,14 @@ export function defineTool<In extends ToolInputSchema, Out extends ToolOutputSch
     ...spec,
     taskSupport,
     requires: Object.freeze(requires),
-    pathArgs: Object.freeze(pathArgs.map(arg => Object.freeze({ ...arg }))),
+    pathArgs: Object.freeze(
+      pathArgs.map(arg =>
+        Object.freeze({
+          ...arg,
+          ...(arg.writeWhen ? { writeWhen: Object.freeze({ ...arg.writeWhen }) } : {}),
+        })
+      )
+    ),
     inputJsonSchema,
     outputJsonSchema,
     inputKeys: Object.freeze(inputKeys),
