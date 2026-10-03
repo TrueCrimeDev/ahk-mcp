@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { getAhkIndex, getAhkDocumentationFull } from '../core/loader.js';
 import { ClaudeStandardsEngine } from '../core/claude-standards.js';
 import logger from '../logger.js';

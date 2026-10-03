@@ -44,8 +44,14 @@ specs/
 Tests/
 tests/
 
-# Claude Code specific
+# Local agent and editor state and machine-specific config (may hold personal
+# settings; never bake into an image)
 .claude/
+.history/
+.kilo/
+.superpowers/
+.mcp.json
+artifacts/
 
 # Logs
 logs/
@@ -66,7 +72,7 @@ scripts/
 # tsconfig files are needed for build
 # tsconfig.json
 # tsconfig.build.json
-jest.config*.js
+jest.config*.cjs
 
 # Temporary files
 tmp/

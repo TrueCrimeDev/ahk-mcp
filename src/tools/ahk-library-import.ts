@@ -5,7 +5,7 @@
  * Resolves dependencies and provides correct import order.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import path from 'path';
 import { LibraryCatalog } from '../core/library-catalog.js';
 import type { McpToolResponse } from '../types/mcp-types.js';

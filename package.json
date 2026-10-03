@@ -2,16 +2,36 @@
   "name": "ahk-server-v2",
   "version": "2.0.0",
   "description": "AutoHotkey v2 MCP Server with LSP-like capabilities",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TrueCrimeDev/ahk-mcp.git"
+  },
+  "homepage": "https://github.com/TrueCrimeDev/ahk-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/TrueCrimeDev/ahk-mcp/issues"
+  },
   "main": "dist/index.js",
+  "bin": {
+    "ahk-mcp": "dist/index.js"
+  },
   "type": "module",
   "engines": {
     "node": ">=20"
   },
+  "files": [
+    "dist",
+    "data",
+    "docs/Modules",
+    "inspector",
+    "scripts/**/*.ahk",
+    "scripts/studio",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node dist/index.js",
-    "start:sse": "cross-env PORT=3000 node dist/index.js --sse",
-    "start:chatgpt": "cross-env PORT=3000 node dist/index.js --sse",
-    "dev": "set NODE_ENV=development && node dist/index.js",
+    "start:http": "cross-env PORT=3000 node dist/index.js --http",
     "build": "npm run clean && node node_modules/typescript/bin/tsc -p tsconfig.build.json",
     "build:portable": "node scripts/build-portable-runtime.mjs",
     "test:portable": "node --test Tests/portable-runtime.test.mjs",
@@ -27,14 +47,13 @@
     "lint-staged": "lint-staged",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky install",
+    "prepare": "husky",
     "codeexec:generate": "tsx scripts/generate-code-exec-wrappers.ts",
     "test": "npm run test:unit",
     "test:unit": "cross-env NODE_ENV=test jest --config jest.config.cjs",
     "test:unit:watch": "cross-env NODE_ENV=test jest --config jest.config.cjs --watch",
-    "test:integration": "cross-env NODE_ENV=test jest --config jest.config.integration.cjs",
+    "test:integration": "npm run build && cross-env NODE_ENV=test jest --config jest.config.integration.cjs",
     "test:coverage": "cross-env NODE_ENV=test jest --config jest.config.coverage.cjs",
-    "test:coverage:report": "npm run test:coverage && open coverage/index.html",
     "test:all": "npm run test:unit && npm run test:integration",
     "test:mcp": "node scripts/test-mcp-run.js",
     "test:uia": "node Tests/uia/golden.mjs",
@@ -44,24 +63,25 @@
     "debug:start": "node scripts/start-debug.js",
     "claude:restart": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/restart-claude-hook.ps1 -Once",
     "claude:watch": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/restart-claude-hook.ps1 -Watch",
-    "spec:new": "node -e \"console.log('Create new spec from .specify/templates/spec-template.md')\"",
-    "spec:plan": "node -e \"console.log('Create implementation plan from .specify/templates/plan-template.md')\"",
-    "spec:tasks": "node -e \"console.log('Create task breakdown from .specify/templates/tasks-template.md')\"",
-    "spec:review": "node -e \"console.log('Review .specify/memory/constitution.md for compliance')\"",
     "smoke:mcp:2026": "node scripts/smoke-mcp-2026.js",
     "test:uia:e2e": "node Tests/uia/e2e-mcp.mjs",
-    "test:uia:lib": "\"$AHK_PATH\" /ErrorStdOut Tests/uia/lib-paths.ahk"
+    "test:uia:lib": "\"$AHK_PATH\" /ErrorStdOut Tests/uia/lib-paths.ahk",
+    "test:contract": "cross-env NODE_ENV=test jest --config jest.config.cjs Tests/contract",
+    "test:ahk": "cross-env NODE_ENV=test jest --config jest.config.ahk.cjs",
+    "build:docs-corpus": "node scripts/build-docs-corpus.mjs",
+    "gen:config-docs": "node scripts/gen-config-docs.mjs",
+    "gen:tools-docs": "node scripts/gen-tools-docs.mjs",
+    "docs:check": "node scripts/gen-config-docs.mjs --check && node scripts/gen-tools-docs.mjs --check"
   },
   "dependencies": {
     "@modelcontextprotocol/node": "^2.1.0",
     "@modelcontextprotocol/server": "^2.1.0",
-    "antlr4ng": "^3.0.16",
+    "diff": "^9.0.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
     "flexsearch": "^0.7.43",
     "prom-client": "^15.1.1",
-    "zod": "^3.25.76",
-    "zod-to-json-schema": "^3.25.0"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
@@ -81,7 +101,6 @@
     "prettier": "^3.6.2",
     "rimraf": "^5.0.5",
     "ts-jest": "^29.1.1",
-    "ts-node": "^10.9.2",
     "tsx": "^4.20.6",
     "typescript": "^5.8.3"
   }

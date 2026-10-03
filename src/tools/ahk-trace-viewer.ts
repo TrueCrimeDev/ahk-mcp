@@ -5,7 +5,7 @@
  * Query traces by ID, tool name, or view recent traces with detailed timing information.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import logger from '../logger.js';
 import { McpToolResponse, createTextResponse, createErrorResponse } from '../types/mcp-types.js';
 import {

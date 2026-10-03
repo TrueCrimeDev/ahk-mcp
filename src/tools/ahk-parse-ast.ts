@@ -14,7 +14,7 @@
  * configuration (which does not strip `.js` extensions on re-imports).
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { McpToolResponse } from '../types/mcp-types.js';

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import logger from '../logger.js';
 import { activeFile } from '../core/active-file.js';
 import { checkToolAvailability } from '../core/tool-settings.js';

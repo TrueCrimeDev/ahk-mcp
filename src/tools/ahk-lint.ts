@@ -5,7 +5,7 @@
  * with tiered linting levels, caching, and optional auto-fix.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import logger from '../logger.js';
 import { activeFile } from '../core/active-file.js';
 import { safeParse } from '../core/validation-middleware.js';

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import net, { Server as NetServer, Socket } from 'net';
 import logger from '../logger.js';
 import { safeParse } from '../core/validation-middleware.js';

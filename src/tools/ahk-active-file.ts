@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import logger from '../logger.js';
 import { loadConfig } from '../core/config.js';
 import { getActiveFilePath, setActiveFilePath } from '../core/active-file.js';

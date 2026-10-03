@@ -1,21 +1,27 @@
 # Dependencies
 node_modules/
+jspm_packages/
+bower_components
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
+.npm
+.yarn-integrity
 
 # Build outputs
 dist/
 build/
-/artifacts/mcp-runtime/
-/artifacts/.mcp-runtime-*/
+artifacts/
 *.tsbuildinfo
+*.tgz
 
 # Logs
 logs/
 *.log
-lerna-debug.log*
+mcp-debug.log*
+debug-*.log
 
 # Runtime data
 pids
@@ -23,78 +29,33 @@ pids
 *.seed
 *.pid.lock
 
-# Coverage directory used by tools like istanbul
+# Coverage
 coverage/
 *.lcov
-
-# nyc test coverage
 .nyc_output
 
-# Grunt intermediate storage (https://gruntjs.com/creating-plugins#storing-task-files)
+# Tool caches
 .grunt
-
-# Bower dependency directory (https://bower.io/)
-bower_components
-
-# node-waf configuration
 .lock-wscript
-
-# Compiled binary addons (https://nodejs.org/api/addons.html)
-build/Release
-
-# Dependency directories
-node_modules/
-jspm_packages/
-vscode-autohotkey2-lsp/
-
-# TypeScript cache
-*.tsbuildinfo
-
-# Optional npm cache directory
-.npm
-
-# Optional eslint cache
 .eslintcache
-
-# Microbundle cache
 .rpt2_cache/
 .rts2_cache_cjs/
 .rts2_cache_es/
 .rts2_cache_umd/
-
-# Optional REPL history
 .node_repl_history
+.cache/
+.parcel-cache
+.next
+.nuxt
+public
+.out
+.storybook-out
 
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# dotenv environment variables file
+# dotenv environment variables files
 .env
 .env.test
 .env.production
 .env.local
-
-# parcel-bundler cache (https://parceljs.org/)
-.cache
-.parcel-cache
-
-# Next.js build output
-.next
-
-# Nuxt.js build / generate output
-.nuxt
-dist
-
-# Gatsby files
-.cache/
-public
-
-# Storybook build outputs
-.out
-.storybook-out
 
 # Temporary folders
 tmp/
@@ -123,22 +84,11 @@ temp/
 ehthumbs.db
 Thumbs.db
 Desktop.ini
-
-# Windows
 *.lnk
 
 # Project specific
 *.ahk.bak
 *.ahk.tmp
-
-# History files
-.history/
-
-# MCP specific
-mcp-debug.log*
-debug-*.log
-
-# Test files
 test-*.ahk
 *-test.ahv
 test-output/
@@ -148,17 +98,16 @@ test-output/
 *.bak
 *~
 
-# Git worktrees
+# Local agent and editor state (may hold personal settings; never publish)
+.history/
+.kilo/
+.superpowers/
 .worktrees/
+memories.md
 
-# Spec Kit - Work in Progress
-# Keep completed specs in git, but ignore drafts
+# Spec Kit drafts; completed specs and the archive stay tracked
 .specify/specs/*-draft.md
 .specify/specs/*-wip.md
-
-# Spec Kit - Archive remains in git
-# .specify/archive/ is tracked for historical reference.mcp.json
-memories.md
 
 # Vendored third-party checkouts.
 # Previously tracked as gitlinks (mode 160000) with no .gitmodules entry, so a fresh

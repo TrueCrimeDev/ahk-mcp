@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import logger from '../logger.js';
 import { toolSettings } from '../core/tool-settings.js';
 import { safeParse } from '../core/validation-middleware.js';

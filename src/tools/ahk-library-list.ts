@@ -5,7 +5,7 @@
  * Provides search by query string and filtering by category.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { LibraryCatalog } from '../core/library-catalog.js';
 import type { McpToolResponse } from '../types/mcp-types.js';
 import { safeParse } from '../core/validation-middleware.js';

@@ -10,6 +10,7 @@
 
 import logger from '../logger.js';
 import { tracer, type Span } from './tracing.js';
+import { SERVER_VERSION } from '../version.js';
 
 export interface OTelConfig {
   enabled: boolean;
@@ -138,7 +139,7 @@ export class OpenTelemetryExporter {
           resource: {
             attributes: [
               { key: 'service.name', value: { stringValue: this.config.serviceName } },
-              { key: 'service.version', value: { stringValue: '2.0.0' } },
+              { key: 'service.version', value: { stringValue: SERVER_VERSION } },
             ],
           },
           scopeSpans: [

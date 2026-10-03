@@ -4,7 +4,7 @@
  * Now includes structured error metadata for client-side debugging.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import logger from '../logger.js';
 import {
   ErrorCode,

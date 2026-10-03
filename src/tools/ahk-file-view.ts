@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import fs from 'fs/promises';
 import path from 'path';
 import { activeFile, getActiveFilePath } from '../core/active-file.js';
@@ -12,7 +12,6 @@ import type {
 } from '../compiler/ahk-parser.js';
 import logger from '../logger.js';
 import { safeParse } from '../core/validation-middleware.js';
-import { createToolDefinition } from '../utils/schema-generator.js';
 import { ErrorResponseBuilder, ErrorCode } from '../core/error-response-builder.js';
 import type { ErrorCodeType } from '../core/error-types.js';
 import { assertAllowedPath } from '../core/path-policy.js';
@@ -56,13 +55,70 @@ const AhkFileViewOutputSchema: Record<string, unknown> = {
   required: ['file', 'mode', 'metadata', 'content', 'displayInfo'],
 };
 
-// Auto-generate inputSchema from Zod schema - no manual duplication!
-export const ahkFileViewToolDefinition = createToolDefinition(
-  'AHK_File_View',
-  'View AHK files with structure analysis. Modes: structured (default), raw, summary, outline. Supports line ranges and syntax highlighting.',
-  AhkFileViewArgsSchema,
-  { outputSchema: AhkFileViewOutputSchema }
-);
+// inputSchema is the frozen zod-to-json-schema output of AhkFileViewArgsSchema; edit both together.
+export const ahkFileViewToolDefinition = {
+  name: 'AHK_File_View',
+  description:
+    'View AHK files with structure analysis. Modes: structured (default), raw, summary, outline. Supports line ranges and syntax highlighting.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      file: {
+        type: 'string',
+        description: 'Path to AutoHotkey file to view (defaults to active file)',
+      },
+      filePath: {
+        type: 'string',
+        description: 'Deprecated alias for `file`. Still accepted for backward compatibility.',
+      },
+      mode: {
+        type: 'string',
+        enum: ['structured', 'raw', 'summary', 'outline'],
+        default: 'structured',
+        description: 'View mode',
+      },
+      lineStart: {
+        type: 'number',
+        minimum: 1,
+        description: 'Starting line number (1-based)',
+      },
+      lineEnd: {
+        type: 'number',
+        minimum: 1,
+        description: 'Ending line number (1-based)',
+      },
+      maxLines: {
+        type: 'number',
+        minimum: 1,
+        maximum: 1000,
+        default: 100,
+        description: 'Maximum lines to display',
+      },
+      showLineNumbers: {
+        type: 'boolean',
+        default: true,
+        description: 'Show line numbers',
+      },
+      showMetadata: {
+        type: 'boolean',
+        default: true,
+        description: 'Show file metadata',
+      },
+      highlightSyntax: {
+        type: 'boolean',
+        default: true,
+        description: 'Apply syntax highlighting',
+      },
+      showStructure: {
+        type: 'boolean',
+        default: true,
+        description: 'Show code structure info',
+      },
+    },
+    additionalProperties: false,
+  },
+  outputSchema: AhkFileViewOutputSchema,
+};
 
 interface FileMetadata {
   path: string;

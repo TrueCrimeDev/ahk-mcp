@@ -5,7 +5,7 @@
  * across all AutoHotkey libraries with fuzzy matching support.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { LibraryCatalog, type SymbolSearchResult } from '../core/library-catalog.js';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { safeParse } from '../core/validation-middleware.js';
