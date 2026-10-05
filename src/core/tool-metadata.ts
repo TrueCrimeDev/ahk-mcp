@@ -36,6 +36,8 @@ import { AHK_Library_Search_Definition } from '../tools/ahk-library-search.js';
 import { ahkCloudValidateToolDefinition } from '../tools/ahk-cloud-validate.js';
 import { ahkDebugDBGpToolDefinition } from '../tools/ahk-debug-dbgp.js';
 import { ahkEvalToolDefinition, ahkReplResetToolDefinition } from '../tools/ahk-eval.js';
+import { ahkCheckToolDefinition } from '../tools/ahk-check.js';
+import { ahkNavigateToolDefinition } from '../tools/ahk-navigate.js';
 import {
   uiaWindowsToolDefinition,
   uiaTreeToolDefinition,
@@ -47,14 +49,17 @@ import {
 
 export type { ToolCategory } from './tool-categories.js';
 import type { ToolCategory } from './tool-categories.js';
+import { getEnabledToolsets, type Toolset } from './toolsets.js';
 
 export interface ToolMetadataEntry {
   definition: Tool;
   slug: string;
   category: ToolCategory;
+  toolset: Toolset;
 }
 
 const TASK_CAPABLE_TOOLS = new Set([
+  'AHK_Check',
   'AHK_Workflow_Analyze_Fix_Run',
   'AHK_Diagnostics',
   'AHK_Run',
@@ -70,6 +75,8 @@ const TASK_CAPABLE_TOOLS = new Set([
 ]);
 
 const MUTATING_TOOLS = new Set([
+  // rename writes files when dryRun is false.
+  'AHK_Navigate',
   'AHK_Workflow_Analyze_Fix_Run',
   'AHK_File_Edit_Advanced',
   'AHK_File_Edit',
@@ -190,75 +197,105 @@ function applySpecMetadata(definition: Tool, category: ToolCategory): Tool {
   };
 }
 
-function entry(definition: unknown, slug: string, category: ToolCategory): ToolMetadataEntry {
+function entry(
+  definition: unknown,
+  slug: string,
+  category: ToolCategory,
+  toolset: Toolset
+): ToolMetadataEntry {
   return {
     definition: applySpecMetadata(definition as Tool, category),
     slug,
     category,
+    toolset,
   };
 }
 
 const TOOL_METADATA: ToolMetadataEntry[] = [
-  entry(ahkToolsSearchToolDefinition, 'tools-search', 'discovery'),
-  entry(ahkWorkflowAnalyzeFixRunToolDefinition, 'workflow-analyze-fix-run', 'workflow'),
-  entry(ahkFileEditorToolDefinition, 'file-edit-advanced', 'file'),
-  entry(ahkEditToolDefinition, 'file-edit', 'file'),
-  entry(ahkFileToolDefinition, 'file-active', 'file'),
-  entry(ahkFileCreateToolDefinition, 'file-create', 'file'),
-  // entry(ahkDiffEditToolDefinition, 'file-edit-diff', 'file'), // Hidden: use file-edit instead
-  entry(ahkDiagnosticsToolDefinition, 'diagnostics', 'analysis'),
-  entry(ahkRunToolDefinition, 'run-script', 'execution'),
-  entry(ahkAnalyzeToolDefinition, 'analyze-code', 'analysis'),
-  entry(ahkContextInjectorToolDefinition, 'context-injector', 'analysis'),
-  entry(ahkSummaryToolDefinition, 'summary', 'docs'),
-  entry(ahkPromptsToolDefinition, 'prompts', 'docs'),
-  // entry(ahkSamplingEnhancerToolDefinition, 'sampling-enhancer', 'analysis'), // Hidden: unclear value
-  entry(ahkDebugAgentToolDefinition, 'run-debug', 'execution'),
-  entry(ahkDocSearchToolDefinition, 'doc-search', 'docs'),
-  entry(ahkVSCodeProblemsToolDefinition, 'vscode-problems', 'analysis'),
-  entry(ahkRecentToolDefinition, 'file-recent', 'file'),
-  entry(ahkConfigToolDefinition, 'config', 'system'),
-  entry(ahkVSCodeOpenToolDefinition, 'vscode-open', 'system'),
-  // entry(ahkActiveFileToolDefinition, 'active-file', 'file'), // Hidden: duplicate of file-active
-  entry(ahkLspToolDefinition, 'lsp', 'lsp'),
-  entry(ahkFileViewToolDefinition, 'file-view', 'file'),
-  entry(ahkFileListToolDefinition, 'file-list', 'file'),
-  entry(ahkAutoFileToolDefinition, 'file-detect', 'file'),
-  entry(ahkProcessRequestToolDefinition, 'process-request', 'workflow'),
-  entry(ahkSettingsToolDefinition, 'settings', 'system'),
-  entry(ahkSmallEditToolDefinition, 'file-edit-small', 'file'),
-  // entry(ahkAlphaToolDefinition, 'alpha-channel', 'system'), // Hidden: experimental
-  entry(ahkSmartOrchestratorToolDefinition, 'smart-orchestrator', 'workflow'),
-  entry(ahkAnalyticsToolDefinition, 'analytics', 'observability'),
-  // entry(ahkTestInteractiveToolDefinition, 'test-interactive', 'execution'), // Hidden: dev-only
-  // entry(ahkTraceViewerToolDefinition, 'trace-viewer', 'observability'), // Hidden: debug-only
-  entry(ahkLintToolDefinition, 'lint', 'analysis'),
-  entry(ahkThqbyDocumentSymbolsToolDefinition, 'thqby-document-symbols', 'analysis'),
-  entry(AHK_Library_List_Definition, 'library-list', 'library'),
-  entry(AHK_Library_Info_Definition, 'library-info', 'library'),
-  entry(AHK_Library_Import_Definition, 'library-import', 'library'),
-  entry(AHK_Library_Search_Definition, 'library-search', 'library'),
-  entry(ahkCloudValidateToolDefinition, 'cloud-validate', 'execution'),
-  entry(ahkDebugDBGpToolDefinition, 'debug-dbgp', 'debug'),
-  entry(ahkEvalToolDefinition, 'eval', 'execution'),
-  entry(ahkReplResetToolDefinition, 'repl-reset', 'execution'),
-  // Read-only UI Automation inspection. None of these appear in MUTATING_TOOLS,
+  // core: on by default. Keep this list short; every listed tool costs context tokens.
+  entry(ahkCheckToolDefinition, 'check', 'analysis', 'core'),
+  entry(ahkNavigateToolDefinition, 'navigate', 'lsp', 'core'),
+  entry(ahkFileViewToolDefinition, 'file-view', 'file', 'core'),
+  entry(ahkFileListToolDefinition, 'file-list', 'file', 'core'),
+  entry(ahkFileToolDefinition, 'file-active', 'file', 'core'),
+  entry(ahkEditToolDefinition, 'file-edit', 'file', 'core'),
+  entry(ahkFileCreateToolDefinition, 'file-create', 'file', 'core'),
+  entry(ahkRunToolDefinition, 'run-script', 'execution', 'core'),
+  entry(ahkDocSearchToolDefinition, 'doc-search', 'docs', 'core'),
+  entry(ahkEvalToolDefinition, 'eval', 'execution', 'core'),
+  entry(ahkConfigToolDefinition, 'config', 'system', 'core'),
+  entry(ahkSettingsToolDefinition, 'settings', 'system', 'core'),
+
+  // debug
+  entry(ahkDebugDBGpToolDefinition, 'debug-dbgp', 'debug', 'debug'),
+  entry(ahkDebugAgentToolDefinition, 'run-debug', 'execution', 'debug'),
+  entry(ahkCloudValidateToolDefinition, 'cloud-validate', 'execution', 'debug'),
+
+  // library
+  entry(AHK_Library_List_Definition, 'library-list', 'library', 'library'),
+  entry(AHK_Library_Info_Definition, 'library-info', 'library', 'library'),
+  entry(AHK_Library_Import_Definition, 'library-import', 'library', 'library'),
+  entry(AHK_Library_Search_Definition, 'library-search', 'library', 'library'),
+
+  // uia: read-only UI Automation inspection. None of these appear in MUTATING_TOOLS,
   // DESTRUCTIVE_TOOLS or OPEN_WORLD_TOOLS, so applySpecMetadata derives
   // readOnlyHint/idempotentHint true and openWorldHint false for all six.
-  entry(uiaWindowsToolDefinition, 'uia-windows', 'uia'),
-  entry(uiaTreeToolDefinition, 'uia-tree', 'uia'),
-  entry(uiaFindToolDefinition, 'uia-find', 'uia'),
-  entry(uiaElementToolDefinition, 'uia-element', 'uia'),
-  entry(uiaUnderCursorToolDefinition, 'uia-under-cursor', 'uia'),
-  entry(uiaHighlightToolDefinition, 'uia-highlight', 'uia'),
+  entry(uiaWindowsToolDefinition, 'uia-windows', 'uia', 'uia'),
+  entry(uiaTreeToolDefinition, 'uia-tree', 'uia', 'uia'),
+  entry(uiaFindToolDefinition, 'uia-find', 'uia', 'uia'),
+  entry(uiaElementToolDefinition, 'uia-element', 'uia', 'uia'),
+  entry(uiaUnderCursorToolDefinition, 'uia-under-cursor', 'uia', 'uia'),
+  entry(uiaHighlightToolDefinition, 'uia-highlight', 'uia', 'uia'),
+
+  // extras
+  entry(ahkVSCodeOpenToolDefinition, 'vscode-open', 'system', 'extras'),
+  entry(ahkVSCodeProblemsToolDefinition, 'vscode-problems', 'analysis', 'extras'),
+  entry(ahkAnalyticsToolDefinition, 'analytics', 'observability', 'extras'),
+  entry(ahkToolsSearchToolDefinition, 'tools-search', 'discovery', 'extras'),
+
+  // legacy: superseded, kept for existing prompts and allow-lists (AHK_MCP_TOOLSETS=legacy).
+  // AHK_Check replaces the analysis tools, AHK_Navigate the THQBY symbols tool, AHK_File_Edit
+  // the other editors, and AHK_Eval { reset: true } replaces AHK_Repl_Reset.
+  entry(ahkDiagnosticsToolDefinition, 'diagnostics', 'analysis', 'legacy'),
+  entry(ahkAnalyzeToolDefinition, 'analyze-code', 'analysis', 'legacy'),
+  entry(ahkLspToolDefinition, 'lsp', 'lsp', 'legacy'),
+  entry(ahkLintToolDefinition, 'lint', 'analysis', 'legacy'),
+  entry(ahkThqbyDocumentSymbolsToolDefinition, 'thqby-document-symbols', 'analysis', 'legacy'),
+  entry(ahkWorkflowAnalyzeFixRunToolDefinition, 'workflow-analyze-fix-run', 'workflow', 'legacy'),
+  entry(ahkSmallEditToolDefinition, 'file-edit-small', 'file', 'legacy'),
+  entry(ahkFileEditorToolDefinition, 'file-edit-advanced', 'file', 'legacy'),
+  entry(ahkRecentToolDefinition, 'file-recent', 'file', 'legacy'),
+  entry(ahkAutoFileToolDefinition, 'file-detect', 'file', 'legacy'),
+  entry(ahkContextInjectorToolDefinition, 'context-injector', 'analysis', 'legacy'),
+  entry(ahkProcessRequestToolDefinition, 'process-request', 'workflow', 'legacy'),
+  entry(ahkSmartOrchestratorToolDefinition, 'smart-orchestrator', 'workflow', 'legacy'),
+  entry(ahkSummaryToolDefinition, 'summary', 'docs', 'legacy'),
+  entry(ahkPromptsToolDefinition, 'prompts', 'docs', 'legacy'),
+  entry(ahkReplResetToolDefinition, 'repl-reset', 'execution', 'legacy'),
+  // Hidden entirely (not callable): AHK_File_Edit_Diff, AHK_Sampling_Enhancer,
+  // AHK_Active_File, AHK_Alpha, AHK_Test_Interactive, AHK_Trace_Viewer.
 ];
 
 export function getToolMetadata(): ToolMetadataEntry[] {
   return TOOL_METADATA;
 }
 
+/** AHK_Settings is always listed: it is how a client turns toolsets on. */
+const ALWAYS_LISTED = new Set(['AHK_Settings']);
+
+/** Whether `name` is advertised (and so callable) under the enabled toolsets. */
+export function isToolListed(name: string): boolean {
+  const meta = getToolMetadataByName(name);
+  if (!meta) return false;
+  return ALWAYS_LISTED.has(name) || getEnabledToolsets().has(meta.toolset);
+}
+
+/** Definitions of the tools in the enabled toolsets, for tools/list. */
 export function getStandardToolDefinitions(): Tool[] {
-  return TOOL_METADATA.map(entry => entry.definition);
+  const enabled = getEnabledToolsets();
+  return TOOL_METADATA.filter(
+    entry => enabled.has(entry.toolset) || ALWAYS_LISTED.has(entry.definition.name)
+  ).map(entry => entry.definition);
 }
 
 export function getToolMetadataByName(name: string): ToolMetadataEntry | undefined {

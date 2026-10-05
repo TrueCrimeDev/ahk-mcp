@@ -91,6 +91,9 @@ import { AhkThqbyDocumentSymbolsTool } from './tools/ahk-thqby-document-symbols.
 import { AhkCloudValidateTool } from './tools/ahk-cloud-validate.js';
 import { AhkDebugDBGpTool } from './tools/ahk-debug-dbgp.js';
 import { AhkEvalTool, AhkReplResetTool, replSession } from './tools/ahk-eval.js';
+import { shutdownThqbySession } from './utils/thqby-lsp-client.js';
+import { AhkCheckTool } from './tools/ahk-check.js';
+import { AhkNavigateTool } from './tools/ahk-navigate.js';
 import { processManager } from './core/process-manager.js';
 import { autoDetect, getActiveFilePath } from './core/active-file.js';
 import { toolSettings } from './core/tool-settings.js';
@@ -103,6 +106,7 @@ import { tracer } from './core/tracing.js';
 import {
   getStandardToolDefinitions,
   getToolMetadataByName,
+  isToolListed,
   toolSupportsTasks,
 } from './core/tool-metadata.js';
 
@@ -211,6 +215,8 @@ export class AutoHotkeyMcpServer {
   public ahkDebugDBGpToolInstance: AhkDebugDBGpTool;
   public ahkEvalToolInstance: AhkEvalTool;
   public ahkReplResetToolInstance: AhkReplResetTool;
+  public ahkCheckToolInstance: AhkCheckTool;
+  public ahkNavigateToolInstance: AhkNavigateTool;
 
   /** DAP server handle, non-null when AHK_DAP_ENABLED=1. */
   private dapServer: DapServerHandle | null = null;
@@ -254,6 +260,8 @@ export class AutoHotkeyMcpServer {
     this.ahkDebugDBGpToolInstance = new AhkDebugDBGpTool();
     this.ahkEvalToolInstance = new AhkEvalTool();
     this.ahkReplResetToolInstance = new AhkReplResetTool();
+    this.ahkCheckToolInstance = new AhkCheckTool();
+    this.ahkNavigateToolInstance = new AhkNavigateTool();
 
     this.toolRegistry = new ToolRegistry(this);
 
@@ -572,7 +580,7 @@ export class AutoHotkeyMcpServer {
   }
 
   private isListedTool(name: string): boolean {
-    if (getToolMetadataByName(name)) return true;
+    if (isToolListed(name)) return true;
     return envConfig.useSSEMode() && (name === 'search' || name === 'fetch');
   }
 
@@ -724,7 +732,13 @@ export class AutoHotkeyMcpServer {
       // Only tools the client can see are callable. An unknown name is a protocol error
       // (-32602), not a tool result; hidden legacy handlers stay unreachable.
       if (!this.isListedTool(name)) {
-        throw new ProtocolError(INVALID_PARAMS, `Unknown tool: ${name}`);
+        const unlisted = getToolMetadataByName(name);
+        throw new ProtocolError(
+          INVALID_PARAMS,
+          unlisted
+            ? `Tool ${name} is in the '${unlisted.toolset}' toolset, which is not enabled. Enable it with AHK_Settings { "action": "enable_toolset", "toolset": "${unlisted.toolset}" } or AHK_MCP_TOOLSETS.`
+            : `Unknown tool: ${name}`
+        );
       }
 
       const previousToolNames =
@@ -3022,6 +3036,13 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
       replSession.stop();
     } catch (error) {
       logger.error('Failed to stop REPL session:', error);
+    }
+
+    // The shared THQBY language server backs AHK_Check and AHK_Navigate.
+    try {
+      await shutdownThqbySession();
+    } catch (error) {
+      logger.error('Failed to stop THQBY language server:', error);
     }
 
     try {
