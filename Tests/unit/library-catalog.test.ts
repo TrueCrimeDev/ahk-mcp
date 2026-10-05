@@ -3,7 +3,7 @@
  * T014: Unit tests for library catalog
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { LibraryCatalog } from '../../src/core/library-catalog.js';
 import fs from 'fs/promises';
 import path from 'path';
