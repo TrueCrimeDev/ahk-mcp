@@ -100,7 +100,12 @@ function linterErrors(code: string) {
 }
 
 describe('static checkers on valid AutoHotkey v2 code', () => {
-  for (const [name, code] of Object.entries(VALID_V2)) {
+  // Windows checkouts get CRLF (.gitattributes), so every sample runs both ways.
+  const samples = Object.entries(VALID_V2).flatMap(([name, code]) => [
+    [name, code],
+    [`${name} (CRLF)`, code.replace(/\n/g, '\r\n')],
+  ]);
+  for (const [name, code] of samples) {
     it(`diagnostic provider reports nothing for ${name}`, async () => {
       expect(await providerErrors(code)).toEqual([]);
     });

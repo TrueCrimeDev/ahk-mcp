@@ -176,3 +176,6 @@ vscode-autohotkey2-lsp/
 .mcp.json
 .claude/settings.json
 .claude/settings.local.json
+
+# Task eval results (evals/run-task-evals.mjs)
+evals/results/

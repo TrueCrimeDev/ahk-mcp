@@ -1,0 +1,10 @@
+{
+  "id": "locate-definition",
+  "prompt": "In this AutoHotkey project, which file and line define the function that main.ahk calls to format timestamps? Answer with the relative file path and the 1-based line number, and do not edit any files.",
+  "assert": [
+    { "answer": "lib[\\\\/]+time\\.ahk", "flags": "i", "why": "wrong file" },
+    { "answer": "\\b5\\b", "why": "wrong line" },
+    { "file": "main.ahk", "unchanged": true },
+    { "file": "lib/time.ahk", "unchanged": true }
+  ]
+}

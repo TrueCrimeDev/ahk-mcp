@@ -1,0 +1,20 @@
+{
+  "id": "add-hotkey",
+  "prompt": "Add a hotkey Ctrl+Alt+R to main.ahk that reloads the script, and make the existing Ctrl+J hotkey also show the click count in a tooltip. Keep everything else working.",
+  "assert": [
+    {
+      "file": "main.ahk",
+      "match": "\\^!r::|!\\^r::",
+      "flags": "i",
+      "why": "Ctrl+Alt+R hotkey missing"
+    },
+    { "file": "main.ahk", "match": "Reload", "why": "Reload missing" },
+    { "file": "main.ahk", "match": "ToolTip", "why": "tooltip missing" },
+    {
+      "file": "main.ahk",
+      "match": "OnEvent\\(\"Click\"",
+      "why": "existing button handler removed"
+    },
+    { "check": "main.ahk" }
+  ]
+}

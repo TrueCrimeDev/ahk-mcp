@@ -1,0 +1,29 @@
+{
+  "id": "fix-v1-syntax",
+  "prompt": "main.ahk in the current directory is written for AutoHotkey v1. Convert it to AutoHotkey v2 so it loads without errors and keeps the same behaviour. Edit the file in place.",
+  "assert": [
+    {
+      "file": "main.ahk",
+      "notMatch": "^\\s*(MsgBox|Sleep|StringReplace|IfWinExist)\\s*,",
+      "flags": "im",
+      "why": "v1 command syntax left"
+    },
+    {
+      "file": "main.ahk",
+      "notMatch": "^\\s*\\w+\\s*=\\s*[^=]",
+      "flags": "m",
+      "why": "v1 `name = value` assignment left"
+    },
+    {
+      "file": "main.ahk",
+      "match": "MsgBox\\s*\\(",
+      "why": "MsgBox call removed"
+    },
+    {
+      "file": "main.ahk",
+      "match": "StrReplace\\s*\\(",
+      "why": "StringReplace not converted to StrReplace()"
+    },
+    { "check": "main.ahk" }
+  ]
+}
