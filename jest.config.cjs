@@ -5,7 +5,6 @@
  */
 /** @type {import('jest').Config} */
 module.exports = {
-  preset: 'ts-jest',
   testEnvironment: 'node',
   roots: ['<rootDir>/src', '<rootDir>/Tests'],
   testMatch: [
@@ -13,7 +12,10 @@ module.exports = {
     '<rootDir>/Tests/contract/**/*.test.ts'
   ],
   transform: {
-    '^.+\\.ts$': 'ts-jest',
+    // Jest loads the suites as CommonJS, so ts-jest compiles them that way. Say so explicitly:
+    // inheriting tsconfig.json's NodeNext makes ts-jest override it anyway and emit warning
+    // TS151002 ("hybrid module kind") for every file.
+    '^.+\\.ts$': ['ts-jest', { tsconfig: { module: 'CommonJS', moduleResolution: 'Node10' } }],
   },
   collectCoverageFrom: [
     'src/**/*.ts',
