@@ -211,6 +211,28 @@ describe('AhkNavigateTool', () => {
 });
 
 describe('ThqbySession', () => {
+  it('adds a workspace folder for each new project, not for subfolders', async () => {
+    const session = new ThqbySession(MOCK_SERVER, process.execPath, 5000, 60000);
+    const a = fs.mkdtempSync(path.join(os.tmpdir(), 'ahk-ws-a-'));
+    const b = fs.mkdtempSync(path.join(os.tmpdir(), 'ahk-ws-b-'));
+    fs.mkdirSync(path.join(a, 'lib'));
+    try {
+      await session.ensureStarted(a);
+      await session.ensureStarted(path.join(a, 'lib'));
+      await session.ensureStarted(b);
+      await session.ensureStarted();
+      const state = await session.request<{ folders: string[] }>('mock/state');
+      expect(state.folders.map(uri => path.basename(new URL(uri).pathname))).toEqual([
+        path.basename(a),
+        path.basename(b),
+      ]);
+    } finally {
+      await session.shutdown();
+      fs.rmSync(a, { recursive: true, force: true });
+      fs.rmSync(b, { recursive: true, force: true });
+    }
+  });
+
   it('collects published diagnostics after a sync', async () => {
     const session = new ThqbySession(MOCK_SERVER, process.execPath, 5000, 60000);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ahk-lsp-'));

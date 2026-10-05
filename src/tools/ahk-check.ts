@@ -284,7 +284,8 @@ function lspSeverity(severity: number | undefined): Severity {
 async function runThqby(
   documentPath: string,
   code: string,
-  timeoutMs: number
+  timeoutMs: number,
+  inline: boolean
 ): Promise<{ report: EngineReport; diagnostics: CheckDiagnostic[] }> {
   const session = getThqbySession();
   if (!session) {
@@ -298,7 +299,8 @@ async function runThqby(
     };
   }
   try {
-    await session.ensureStarted(path.dirname(documentPath));
+    // Inline code has no project folder; don't make the temp dir a workspace folder.
+    await session.ensureStarted(inline ? undefined : path.dirname(documentPath));
     const uri = session.syncDocument(documentPath, code);
     const published: LspDiagnostic[] = await session.waitForDiagnostics(
       uri,
@@ -487,7 +489,9 @@ export class AhkCheckTool {
       results.push(
         ...(await Promise.all([
           interpreterTask,
-          wanted.has('thqby') ? runThqby(documentPath, code, timeoutMs) : skipped('thqby'),
+          wanted.has('thqby')
+            ? runThqby(documentPath, code, timeoutMs, !filePath)
+            : skipped('thqby'),
           wanted.has('static') ? runStatic(code, includeStyle) : skipped('static'),
         ]))
       );

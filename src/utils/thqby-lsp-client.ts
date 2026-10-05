@@ -154,6 +154,7 @@ export class ThqbySession {
   private starting: Promise<void> | null = null;
   private idleTimer: NodeJS.Timeout | null = null;
   private rootPath: string | null = null;
+  private workspaceFolders = new Set<string>();
 
   constructor(
     private readonly serverPath: string,
@@ -167,16 +168,37 @@ export class ThqbySession {
     return this.child !== null;
   }
 
-  /** Start the server (once) with `rootPath` as its workspace folder. */
-  async ensureStarted(rootPath: string): Promise<void> {
+  /**
+   * Start the server (once). `rootPath` becomes a workspace folder, so workspace/symbol
+   * covers it; later calls for other projects add their folders to the running server.
+   */
+  async ensureStarted(rootPath?: string): Promise<void> {
     this.touch();
-    if (this.child && this.rootPath) return;
-    if (!this.starting) {
-      this.starting = this.start(rootPath).finally(() => {
-        this.starting = null;
-      });
+    if (!(this.child && this.rootPath)) {
+      if (!this.starting) {
+        this.starting = this.start(rootPath ?? process.cwd()).finally(() => {
+          this.starting = null;
+        });
+      }
+      await this.starting;
     }
-    await this.starting;
+    if (rootPath) this.addWorkspaceFolder(rootPath);
+  }
+
+  private addWorkspaceFolder(folder: string): void {
+    const resolved = path.resolve(folder);
+    const key = resolved.toLowerCase();
+    const covered = [...this.workspaceFolders].some(
+      known => key === known || key.startsWith(known.endsWith(path.sep) ? known : known + path.sep)
+    );
+    if (covered || !this.child) return;
+    this.workspaceFolders.add(key);
+    this.notify('workspace/didChangeWorkspaceFolders', {
+      event: {
+        added: [{ uri: toFileUri(resolved), name: path.basename(resolved) }],
+        removed: [],
+      },
+    });
   }
 
   private async start(rootPath: string): Promise<void> {
@@ -186,6 +208,7 @@ export class ThqbySession {
     });
     this.child = child;
     this.rootPath = path.resolve(rootPath);
+    this.workspaceFolders = new Set([this.rootPath.toLowerCase()]);
     this.buffer = Buffer.alloc(0);
     this.documents.clear();
     this.diagnostics.clear();
@@ -231,6 +254,7 @@ export class ThqbySession {
     logger.debug(error.message);
     this.child = null;
     this.rootPath = null;
+    this.workspaceFolders.clear();
     this.documents.clear();
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timeout);

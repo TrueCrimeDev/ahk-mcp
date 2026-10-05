@@ -11,6 +11,7 @@ const docs = new Map();
 let buffer = Buffer.alloc(0);
 let clientAnsweredServerRequest = false;
 let changeCount = 0;
+const folders = [];
 
 function send(message) {
   const json = JSON.stringify({ jsonrpc: '2.0', ...message });
@@ -62,6 +63,7 @@ function handle(msg) {
   const p = msg.params || {};
   switch (msg.method) {
     case 'initialize':
+      for (const f of msg.params.workspaceFolders || []) folders.push(f.uri);
       return send({ id: msg.id, result: { capabilities: { textDocumentSync: 2 } } });
     case 'initialized':
       return send({
@@ -121,6 +123,11 @@ function handle(msg) {
       const edits = occurrences(text, word).map(range => ({ range, newText: p.newName }));
       return send({ id: msg.id, result: { changes: { [p.textDocument.uri]: edits } } });
     }
+    case 'workspace/didChangeWorkspaceFolders':
+      for (const f of p.event.added) folders.push(f.uri);
+      return;
+    case 'mock/state':
+      return send({ id: msg.id, result: { folders, changeCount } });
     case 'workspace/symbol':
       return send({ id: msg.id, result: [] });
     case 'shutdown':
