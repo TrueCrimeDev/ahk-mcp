@@ -8,7 +8,8 @@ Current implementation status and feature completion tracking.
 
 **Core MCP Server** - Main tool surface functional
 
-- 35 MCP tools currently advertised via `tools/list`
+- 12 core tools advertised via `tools/list` by default; 45 across all toolsets
+  (`AHK_MCP_TOOLSETS=all`)
 - JSON-RPC 2.0 communication layer
 - Error handling and validation
 - Resource management system
@@ -57,16 +58,18 @@ Current implementation status and feature completion tracking.
 - Binary output generation needed
 - Optimization passes planned
 
-**LSP Server** - Foundation ready
+**Code navigation** - via THQBY's AutoHotkey v2 language server
 
-- Basic LSP components exist
-- Go-to-definition needed
-- Symbol references planned
+- `AHK_Navigate`: symbols, definition, references, hover, workspace symbols,
+  rename
+- One persistent language-server process, text-search fallback when THQBY is not
+  installed
+- `AHK_Check`: AutoHotkey `/Validate`, THQBY diagnostics and static checks in
+  one result
 
 ## 📊 Feature Statistics
 
-- **32 TypeScript Files** → **32 JavaScript Files**
-- **35 MCP Tools** advertised in the live MCP surface
+- **12 core MCP tools** listed by default, **45** across all toolsets
 - **11 MCP Resources** providing live data
 - **20+ Prompt Templates** for various use cases
 - **4 Script Templates** ready to use
