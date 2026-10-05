@@ -1,17 +1,24 @@
-import { describe, it, before, after } from 'node:test';
-import assert from 'node:assert';
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { AhkEditTool } from '../../src/tools/ahk-file-edit.js';
+import type { McpToolResponse } from '../../src/types/mcp-types.js';
 import fs from 'fs/promises';
 import path from 'path';
+
+/** Text of the first content item, failing the test if it has none. */
+function firstText(result: McpToolResponse): string {
+  const text = result.content[0]?.text;
+  if (text === undefined) throw new Error('Tool result has no text content');
+  return text;
+}
 
 describe('Dry-run preview format (Contract Test)', () => {
   let editTool: AhkEditTool;
   let testFilePath: string;
   let originalContent: string;
 
-  before(async () => {
+  beforeAll(async () => {
     editTool = new AhkEditTool();
-    const fixturesDir = path.join(process.cwd(), 'tests', 'fixtures');
+    const fixturesDir = path.join(__dirname, '..', 'fixtures');
     const sourceFile = path.join(fixturesDir, 'test-quality-improvements.ahk');
     testFilePath = path.join(fixturesDir, 'test-dryrun.ahk');
 
@@ -20,11 +27,9 @@ describe('Dry-run preview format (Contract Test)', () => {
     await fs.writeFile(testFilePath, originalContent);
   });
 
-  after(async () => {
+  afterAll(async () => {
     // Cleanup
-    try {
-      await fs.unlink(testFilePath);
-    } catch {}
+    await fs.rm(testFilePath, { force: true });
   });
 
   it('should show "DRY RUN" marker without modifying file', async () => {
@@ -34,19 +39,19 @@ describe('Dry-run preview format (Contract Test)', () => {
       newContent: 'LightMode',
       all: true,
       dryRun: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
-    const outputText = result.content[0].text;
+    const outputText = firstText(result);
 
     // Check for dry-run markers
-    assert.ok(outputText.includes('DRY RUN'), 'Should show DRY RUN marker');
-    assert.ok(outputText.match(/no changes made/i), 'Should state no changes were made');
+    expect(outputText).toContain('DRY RUN');
+    expect(outputText).toMatch(/no changes made/i);
 
     // Verify file was NOT modified
     const fileContent = await fs.readFile(testFilePath, 'utf-8');
-    assert.strictEqual(fileContent, originalContent, 'File should remain unchanged');
-    assert.ok(fileContent.includes('DarkMode'), 'Original text should still be present');
+    expect(fileContent).toBe(originalContent);
+    expect(fileContent).toContain('DarkMode');
   });
 
   it('should show occurrence count in summary', async () => {
@@ -56,17 +61,13 @@ describe('Dry-run preview format (Contract Test)', () => {
       newContent: 'LightMode',
       all: true,
       dryRun: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
-    const outputText = result.content[0].text;
+    const outputText = firstText(result);
 
     // Should mention how many replacements would happen
-    assert.ok(
-      outputText.match(/would replace \d+ occurrence/i) ||
-      outputText.match(/\d+ occurrence.*would be replaced/i),
-      'Should show occurrence count'
-    );
+    expect(outputText).toMatch(/would replace \d+ occurrence|\d+ occurrence.*would be replaced/i);
   });
 
   it('should show first 3 sample diffs when multiple changes', async () => {
@@ -76,20 +77,16 @@ describe('Dry-run preview format (Contract Test)', () => {
       newContent: 'ThemeMode',
       all: true,
       dryRun: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
-    const outputText = result.content[0].text;
+    const outputText = firstText(result);
 
     // Count line number mentions (e.g., "Line 15:", "Line 23:")
-    const lineMatches = outputText.match(/Line \d+:/g);
+    const lineMatches = outputText.match(/Line \d+:/g) ?? [];
 
-    if (lineMatches) {
-      assert.ok(
-        lineMatches.length <= 3,
-        `Should show at most 3 samples, but found ${lineMatches.length}`
-      );
-    }
+    // The fixture has six matching lines; the preview caps its samples at three.
+    expect(lineMatches).toHaveLength(3);
   });
 
   it('should show before/after preview for each sample', async () => {
@@ -98,16 +95,13 @@ describe('Dry-run preview format (Contract Test)', () => {
       search: 'testValue',
       newContent: 'newValue',
       dryRun: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
-    const outputText = result.content[0].text;
+    const outputText = firstText(result);
 
     // Should show before → after format
-    assert.ok(
-      outputText.includes('→') || outputText.includes('->') || outputText.includes('after'),
-      'Should show before/after indication'
-    );
+    expect(outputText).toMatch(/→|->|after/);
   });
 
   it('should work with single replacement (not just batch)', async () => {
@@ -115,19 +109,19 @@ describe('Dry-run preview format (Contract Test)', () => {
       action: 'replace',
       search: 'TestClass',
       newContent: 'MyClass',
-      all: false,  // Single replacement
+      all: false, // Single replacement
       dryRun: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
-    const outputText = result.content[0].text;
+    const outputText = firstText(result);
 
-    assert.ok(outputText.includes('DRY RUN'), 'Should show DRY RUN marker');
-    assert.ok(outputText.match(/1 occurrence/i) || outputText.match(/first occurrence/i), 'Should indicate single occurrence');
+    expect(outputText).toContain('DRY RUN');
+    expect(outputText).toMatch(/1 occurrence|first occurrence/i);
 
     // Verify file unchanged
     const fileContent = await fs.readFile(testFilePath, 'utf-8');
-    assert.ok(fileContent.includes('TestClass'), 'Original text should remain');
+    expect(fileContent).toContain('TestClass');
   });
 
   it('should include file affected count in summary', async () => {
@@ -137,15 +131,11 @@ describe('Dry-run preview format (Contract Test)', () => {
       newContent: 'NewMode',
       all: true,
       dryRun: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
-    const outputText = result.content[0].text;
+    const outputText = firstText(result);
 
-    assert.ok(
-      outputText.match(/1 file affected/i) ||
-      outputText.match(/file.*affected/i),
-      'Should show affected file count'
-    );
+    expect(outputText).toMatch(/1 file affected|file.*affected/i);
   });
 });
