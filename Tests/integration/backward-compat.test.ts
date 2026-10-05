@@ -1,34 +1,48 @@
-import { describe, it, before, after } from 'node:test';
-import assert from 'node:assert';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from '@jest/globals';
 import { AhkEditTool } from '../../src/tools/ahk-file-edit.js';
 import { AhkSmartOrchestratorTool } from '../../src/tools/ahk-smart-orchestrator.js';
+import type { McpToolResponse } from '../../src/types/mcp-types.js';
 import fs from 'fs/promises';
 import path from 'path';
 
+type OrchestratorArgs = Parameters<AhkSmartOrchestratorTool['execute']>[0];
+
+/** Text of the first content item, failing the test if it has none. */
+function firstText(result: McpToolResponse): string {
+  const text = result.content[0]?.text;
+  if (text === undefined) throw new Error('Tool result has no text content');
+  return text;
+}
+
+/** Whether any content item carries the (retired) orchestrator debug section. */
+function hasDebugSection(result: McpToolResponse): boolean {
+  return result.content.some(item => item.text?.includes('🔍 DEBUG') ?? false);
+}
+
 describe('Backward compatibility integration', () => {
+  const fixturesDir = path.join(__dirname, '..', 'fixtures');
+  const testFilePath = path.join(fixturesDir, 'test-backward-compat.ahk');
   let editTool: AhkEditTool;
   let orchestrator: AhkSmartOrchestratorTool;
-  let testFilePath: string;
   let originalContent: string;
 
-  before(async () => {
+  beforeAll(async () => {
     editTool = new AhkEditTool();
     orchestrator = new AhkSmartOrchestratorTool();
+    originalContent = await fs.readFile(
+      path.join(fixturesDir, 'test-quality-improvements.ahk'),
+      'utf-8'
+    );
+  });
 
-    const fixturesDir = path.join(process.cwd(), 'tests', 'fixtures');
-    const sourceFile = path.join(fixturesDir, 'test-quality-improvements.ahk');
-    testFilePath = path.join(fixturesDir, 'test-backward-compat.ahk');
-
-    // Create test copy
-    originalContent = await fs.readFile(sourceFile, 'utf-8');
+  beforeEach(async () => {
+    // Every test starts from a fresh working copy of the fixture
     await fs.writeFile(testFilePath, originalContent);
   });
 
-  after(async () => {
-    // Cleanup
-    try {
-      await fs.unlink(testFilePath);
-    } catch {}
+  afterAll(async () => {
+    await fs.rm(testFilePath, { force: true });
+    await fs.rm(`${testFilePath}.bak`, { force: true });
   });
 
   it('should accept all old parameter formats without errors', async () => {
@@ -36,12 +50,12 @@ describe('Backward compatibility integration', () => {
     const result1 = await editTool.execute({
       action: 'replace',
       search: 'oldText',
-      content: 'newText',  // OLD parameter name
-      filePath: testFilePath
+      content: 'newText', // OLD parameter name
+      filePath: testFilePath,
     });
 
-    assert.strictEqual(result1.isError, undefined, 'Should not error with old parameter');
-    assert.ok(result1.content[0].text, 'Should have valid output');
+    expect(result1.isError).toBeUndefined();
+    expect(firstText(result1)).toBeTruthy();
 
     // Reset file
     await fs.writeFile(testFilePath, originalContent);
@@ -51,55 +65,46 @@ describe('Backward compatibility integration', () => {
       action: 'replace',
       search: 'testValue',
       content: 'newValue',
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
-    assert.strictEqual(result2.isError, undefined, 'Should work without dryRun parameter');
+    expect(result2.isError).toBeUndefined();
 
     // File should be modified (dryRun defaults to false)
     const fileContent = await fs.readFile(testFilePath, 'utf-8');
-    assert.ok(fileContent.includes('newValue'), 'File should be modified when dryRun omitted');
+    expect(fileContent).toContain('newValue');
   });
 
   it('should work without new optional parameters (use defaults)', async () => {
-    // Reset file
-    await fs.writeFile(testFilePath, originalContent);
-
-    // Call orchestrator without debugMode (should default to false)
+    // Call the orchestrator with the original parameters only (no operation, forceRefresh,
+    // validate or the retired debugMode): the defaults must apply. It needs filePath because
+    // it detects files from the intent text, which names no file here.
     const result = await orchestrator.execute({
-      intent: 'view TestClass'
-      // No debugMode, no new parameters
-    });
+      intent: 'view TestClass',
+      filePath: testFilePath,
+    } as OrchestratorArgs);
 
-    assert.strictEqual(result.isError, undefined, 'Should work without new parameters');
-    assert.ok(result.content.length > 0, 'Should have output');
+    expect(result.isError).toBeUndefined();
+    expect(result.content.length).toBeGreaterThan(0);
 
     // Should NOT include debug output
-    const hasDebug = result.content.some((item: any) =>
-      item.text && item.text.includes('🔍 DEBUG')
-    );
-    assert.ok(!hasDebug, 'Should not show debug by default');
+    expect(hasDebugSection(result)).toBe(false);
   });
 
   it('should maintain JSON output structure for MCP protocol', async () => {
-    // Reset file
-    await fs.writeFile(testFilePath, originalContent);
-
     // Test with old parameters
     const editResult = await editTool.execute({
       action: 'replace',
       search: 'TestClass',
-      content: 'MyClass',  // Old parameter
-      filePath: testFilePath
+      content: 'MyClass', // Old parameter
+      filePath: testFilePath,
     });
 
     // Verify MCP protocol structure
-    assert.ok(editResult, 'Should return result object');
-    assert.ok('content' in editResult, 'Should have content property');
-    assert.ok(Array.isArray(editResult.content), 'Content should be array');
-    assert.ok(editResult.content.length > 0, 'Content array should not be empty');
-    assert.ok(editResult.content[0].type === 'text', 'Content item should have type');
-    assert.ok(typeof editResult.content[0].text === 'string', 'Content should have text');
+    expect(Array.isArray(editResult.content)).toBe(true);
+    expect(editResult.content.length).toBeGreaterThan(0);
+    expect(editResult.content[0].type).toBe('text');
+    expect(typeof editResult.content[0].text).toBe('string');
 
     // Test with dry-run
     await fs.writeFile(testFilePath, originalContent);
@@ -109,85 +114,65 @@ describe('Backward compatibility integration', () => {
       search: 'TestClass',
       newContent: 'MyClass',
       dryRun: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
     // Same structure even with new parameters
-    assert.ok(dryRunResult.content, 'Dry-run should have content');
-    assert.ok(Array.isArray(dryRunResult.content), 'Dry-run content should be array');
-    assert.strictEqual(dryRunResult.content[0].type, 'text', 'Dry-run should maintain type');
+    expect(Array.isArray(dryRunResult.content)).toBe(true);
+    expect(dryRunResult.content[0].type).toBe('text');
   });
 
   it('should handle mix of old and new parameters gracefully', async () => {
-    // Reset file
-    await fs.writeFile(testFilePath, originalContent);
-
     // Mix: old "content" + new "dryRun"
     const result = await editTool.execute({
       action: 'replace',
       search: 'oldText',
-      content: 'newText',  // OLD
-      dryRun: true,        // NEW
-      filePath: testFilePath
+      content: 'newText', // OLD
+      dryRun: true, // NEW
+      filePath: testFilePath,
     });
 
-    assert.strictEqual(result.isError, undefined, 'Should handle mixed parameters');
-    assert.ok(result.content[0].text.includes('DRY RUN'), 'New feature (dry-run) should work');
+    expect(result.isError).toBeUndefined();
+    expect(firstText(result)).toContain('DRY RUN');
 
     // File should be unchanged (dryRun=true)
     const fileContent = await fs.readFile(testFilePath, 'utf-8');
-    assert.strictEqual(fileContent, originalContent, 'Dry-run should prevent changes');
+    expect(fileContent).toBe(originalContent);
   });
 
   it('should not break existing error handling', async () => {
-    // Test with invalid parameters (should still error properly)
-    try {
-      await editTool.execute({
-        action: 'replace',
-        search: 'nonexistent',
-        content: 'replacement',
-        filePath: '/nonexistent/path.ahk'
-      });
+    // Invalid file: must be reported as a failed tool call
+    const missingFile = await editTool.execute({
+      action: 'replace',
+      search: 'nonexistent',
+      content: 'replacement',
+      filePath: '/nonexistent/path.ahk',
+    });
 
-      assert.fail('Should have thrown error for invalid file');
-    } catch (error: any) {
-      // Expected error
-      assert.ok(error, 'Should error on invalid file');
-    }
+    expect(missingFile.isError).toBe(true);
+    expect(firstText(missingFile)).toMatch(/^Error:/);
 
-    // Test missing required parameters
-    try {
-      const result = await editTool.execute({
-        action: 'replace',
-        // Missing search and content
-        filePath: testFilePath
-      } as any);
+    // Missing required parameters (search and content)
+    const missingParams = await editTool.execute({
+      action: 'replace',
+      filePath: testFilePath,
+    });
 
-      // Should either error or return isError: true
-      if (result.isError) {
-        assert.ok(true, 'Returned error result');
-      } else {
-        assert.fail('Should have errored on missing parameters');
-      }
-    } catch (error) {
-      assert.ok(error, 'Should error on missing required parameters');
-    }
+    expect(missingParams.isError).toBe(true);
+    expect(firstText(missingParams)).toMatch(/^Error:/);
   });
 
   it('should preserve all existing tool capabilities', async () => {
-    // Reset file
-    await fs.writeFile(testFilePath, originalContent);
-
     // Test regex still works
     const regexResult = await editTool.execute({
       action: 'replace',
       search: 'Test\\w+',
-      newContent: 'My$&',  // Using capture groups
+      newContent: 'My$&', // Using capture groups
       regex: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
-    assert.strictEqual(regexResult.isError, undefined, 'Regex should still work');
+    expect(regexResult.isError).toBeUndefined();
 
     // Reset and test "all" flag
     await fs.writeFile(testFilePath, originalContent);
@@ -197,44 +182,37 @@ describe('Backward compatibility integration', () => {
       search: 'DarkMode',
       newContent: 'ThemeMode',
       all: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
-    assert.ok(allResult.content[0].text, 'All flag should still work');
+    expect(firstText(allResult)).toBeTruthy();
 
     const fileContent = await fs.readFile(testFilePath, 'utf-8');
     const count = (fileContent.match(/ThemeMode/g) || []).length;
-    assert.ok(count > 1, 'All flag should replace multiple occurrences');
+    expect(count).toBeGreaterThan(1);
   });
 
   it('should maintain backward compatible defaults', async () => {
     // When dryRun is omitted, should default to false (actual edit)
-    // When debugMode is omitted, should default to false (no debug output)
-
-    await fs.writeFile(testFilePath, originalContent);
-
-    const editResult = await editTool.execute({
+    await editTool.execute({
       action: 'replace',
       search: 'oldText',
       newContent: 'actuallyChanged',
       // dryRun omitted - should default to false
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
     const fileContent = await fs.readFile(testFilePath, 'utf-8');
-    assert.ok(
-      fileContent.includes('actuallyChanged'),
-      'Should actually modify file when dryRun omitted (default false)'
-    );
+    expect(fileContent).toContain('actuallyChanged');
 
+    // Orchestrator without the optional settings: no debug output
     const orchestratorResult = await orchestrator.execute({
       intent: 'view TestClass',
-      // debugMode omitted - should default to false
-    });
+      filePath: testFilePath,
+    } as OrchestratorArgs);
 
-    const hasDebug = orchestratorResult.content.some((item: any) =>
-      item.text && item.text.includes('🔍 DEBUG')
-    );
-    assert.ok(!hasDebug, 'Should not show debug when debugMode omitted (default false)');
+    expect(orchestratorResult.isError).toBeUndefined();
+
+    expect(hasDebugSection(orchestratorResult)).toBe(false);
   });
 });

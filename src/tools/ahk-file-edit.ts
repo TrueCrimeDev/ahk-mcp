@@ -836,6 +836,7 @@ export class AhkEditTool {
             text: `Error: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
+        isError: true,
       };
     }
   }
