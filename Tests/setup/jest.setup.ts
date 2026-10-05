@@ -31,11 +31,17 @@ jest.setTimeout(30000);
 // Extend global interface for test helpers
 declare global {
   var testHelpers: {
-    createMockToolResponse: (content: any, isError?: boolean) => {
+    createMockToolResponse: (
+      content: any,
+      isError?: boolean
+    ) => {
       content: Array<{ type: string; text: string }>;
       isError: boolean;
     };
-    createMockAHKFile: (content: string, path?: string) => {
+    createMockAHKFile: (
+      content: string,
+      path?: string
+    ) => {
       path: string;
       content: string;
       exists: boolean;
@@ -50,19 +56,24 @@ declare global {
 // Global test helpers
 global.testHelpers = {
   createMockToolResponse: (content: any, isError = false) => ({
-    content: [{ type: 'text', text: typeof content === 'string' ? content : JSON.stringify(content, null, 2) }],
-    isError
+    content: [
+      {
+        type: 'text',
+        text: typeof content === 'string' ? content : JSON.stringify(content, null, 2),
+      },
+    ],
+    isError,
   }),
-  
+
   createMockAHKFile: (content: string, path: string = 'test.ahk') => ({
     path,
     content,
     exists: true,
-    isAHKFile: true
+    isAHKFile: true,
   }),
-  
+
   waitFor: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
-  
+
   createTempDir: () => {
     const os = require('os');
     const path = require('path');
@@ -71,13 +82,13 @@ global.testHelpers = {
     fs.mkdirSync(tempDir, { recursive: true });
     return tempDir;
   },
-  
+
   cleanupTempDir: (dir: string) => {
     const fs = require('fs');
     if (fs.existsSync(dir)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
-  }
+  },
 };
 
 // Increase stack trace for better error reporting
