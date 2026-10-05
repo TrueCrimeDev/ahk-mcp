@@ -140,6 +140,7 @@ debug-*.log
 
 # Test files
 test-*.ahk
+!Tests/fixtures/test-quality-improvements.ahk
 *-test.ahv
 test-output/
 

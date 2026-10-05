@@ -1,4 +1,5 @@
 import { config } from 'dotenv';
+import { isolateAhkMcpConfig } from './isolated-config';
 
 // Load test environment variables
 config({ path: '.env.test' });
@@ -7,6 +8,10 @@ config({ path: '.env.test' });
 process.env.NODE_ENV = 'test';
 process.env.AHK_MCP_LOG_LEVEL = 'error'; // Reduce log noise during tests
 process.env.AHK_MCP_DATA_MODE = 'light'; // Use minimal data for faster tests
+
+// Keep tool state out of the developer's real ahk-mcp config (see isolated-config.ts)
+const removeIsolatedConfig = isolateAhkMcpConfig();
+afterAll(() => removeIsolatedConfig());
 
 // Global test utilities
 global.console = {
