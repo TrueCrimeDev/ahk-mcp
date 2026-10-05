@@ -1,5 +1,9 @@
 # Setting Up AutoHotkey MCP Server for Claude Code
 
+> On native Windows, use [CLAUDE_CODE_WINDOWS.md](CLAUDE_CODE_WINDOWS.md)
+> instead: `scripts/setup-claude-code.ps1` registers the server as `ahk` and
+> removes the older `autohotkey-v2` registration shown below.
+
 This guide will help you configure your AutoHotkey v2 MCP Server to work with
 Claude Code.
 

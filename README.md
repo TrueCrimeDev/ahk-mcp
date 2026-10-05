@@ -117,9 +117,15 @@ in [`.mcp.example.json`](.mcp.example.json).
 
 ## Claude Code on Windows
 
-`scripts/setup-claude-code.ps1` builds the server, registers it with Claude Code
-as `ahk`, detects AutoHotkey and the THQBY language server, and checks that the
-server answers. See
+From the repo root in PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-claude-code.ps1
+```
+
+It builds the server, registers it with Claude Code as `ahk`, and sets up
+permissions, MCP timeouts and an AutoHotkey `/Validate` hook for edited `.ahk`
+files. Add `-WhatIf` to preview. Options and troubleshooting:
 [`docs/CLAUDE_CODE_WINDOWS.md`](docs/CLAUDE_CODE_WINDOWS.md).
 
 ## File Access
