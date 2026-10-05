@@ -1,25 +1,15 @@
 /**
  * Integration test for the DAP server/session wire path.
  *
- * STATUS: Suite is currently wrapped in `describe.skip` because this project's
- * jest configuration uses NodeNext module resolution in `src/` (`.js` suffix
- * on all internal imports), and `ts-jest` in the integration config does not
- * rewrite `.js` back to `.ts` at test-resolve time. The *unit* test for the
- * translator works because translator.ts only has type-only imports (erased),
- * but dap-server.ts imports the real `logger` module at runtime and resolution
- * fails. This is a pre-existing project-wide jest-resolution issue (see
- * Tests/integration/edit-dryrun.test.ts which has the same problem) and is
- * out of scope for the DAP work.
+ * The pure translation surface is covered by `Tests/unit/dap-translator.test.ts`.
+ * The Jest configs map the `.js` suffix of `src/` imports back to the `.ts`
+ * sources, so the real server loads here.
  *
- * The logic exercised here IS covered by `Tests/unit/dap-translator.test.ts`
- * (17 passing tests) for the pure translation surface. For wire-format
- * verification, follow the manual-verify steps in `docs/dap.md` — connect
- * any DAP client to localhost:9001 and watch the logs.
- *
- * Strategy (when enabled): stand up the DAP server on a dynamic port,
- * connect a raw TCP client, send framed DAP `initialize` requests, and
- * verify responses + the `initialized` event. Exercises framing, the single-
- * session guard, and dispatch for commands that don't need DBGp.
+ * Strategy: stand up the DAP server on a fixed high port, connect a raw TCP
+ * client, send framed DAP requests, and verify responses + the `initialized`
+ * event. Exercises framing, the single-session guard, and dispatch for
+ * commands that don't need DBGp. The server accepts one session at a time, so
+ * every test waits for its client socket to close before the next one starts.
  *
  * Deferred manual-only:
  *   - launch: would spawn a real AHK binary, not guaranteed in CI.
@@ -27,29 +17,27 @@
  *   - stackTrace / variables: depend on a live AHK session.
  */
 
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { once } from 'node:events';
 import * as net from 'net';
-// Imports deferred to runtime inside the (skipped) describe block so this
-// file can be loaded by jest without triggering `.js`-suffix module
-// resolution failures. See the STATUS note above.
-import type {
-  startDapServer as startDapServerType,
-  encodeDapFrame as encodeDapFrameType,
-  DapServerHandle,
-} from '../../src/dap/dap-server';
-import type { DapRequest, DapResponse, DapEvent } from '../../src/dap/types';
-
-// Silence "unused type" warnings — these are imported so TypeScript can type-
-// check the skipped test body.
-void (null as unknown as typeof startDapServerType);
-void (null as unknown as typeof encodeDapFrameType);
-void (null as unknown as DapServerHandle);
-void (null as unknown as net.Socket);
+import { startDapServer, encodeDapFrame, type DapServerHandle } from '../../src/dap/dap-server.js';
+import type { DapRequest, DapResponse, DapEvent } from '../../src/dap/types.js';
 
 function openClient(host: string, port: number): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const sock = net.createConnection({ host, port }, () => resolve(sock));
     sock.once('error', reject);
   });
+}
+
+/** End the client side and wait until the socket (and so the server session) is closed. */
+async function closeClient(sock: net.Socket): Promise<void> {
+  if (sock.destroyed) return;
+  const closed = once(sock, 'close');
+  sock.end();
+  await closed;
+  // The server frees its single session slot in its own 'close' handler.
+  await new Promise(resolve => setImmediate(resolve));
 }
 
 /**
@@ -102,22 +90,10 @@ class ClientFrameReader {
   }
 }
 
-describe.skip('DAP session integration', () => {
-  // Load at runtime (inside beforeAll) to avoid `.js`-suffix resolution
-  // issues at suite-registration time.
-  let startDapServer: typeof startDapServerType;
-  let encodeDapFrame: typeof encodeDapFrameType;
+describe('DAP session integration', () => {
   let server: DapServerHandle;
 
   beforeAll(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require('../../src/dap/dap-server') as {
-      startDapServer: typeof startDapServerType;
-      encodeDapFrame: typeof encodeDapFrameType;
-    };
-    startDapServer = mod.startDapServer;
-    encodeDapFrame = mod.encodeDapFrame;
-
     // Use a high, non-default port to avoid collisions with a dev server.
     server = await startDapServer({ port: 19_001 });
   });
@@ -154,7 +130,7 @@ describe.skip('DAP session integration', () => {
     expect(event).toBeDefined();
     expect(event?.event).toBe('initialized');
 
-    sock.end();
+    await closeClient(sock);
   });
 
   it('rejects unsupported command gracefully', async () => {
@@ -174,7 +150,7 @@ describe.skip('DAP session integration', () => {
     expect(msg.type).toBe('response');
     expect(msg.success).toBe(false);
     expect(msg.message).toMatch(/Unsupported/);
-    sock.end();
+    await closeClient(sock);
   });
 
   it('rejects a second concurrent DAP connection', async () => {
@@ -184,13 +160,15 @@ describe.skip('DAP session integration', () => {
 
     const second = await openClient('127.0.0.1', server.port);
     // The server calls socket.end() immediately; expect the peer to close.
-    await new Promise<void>(resolve => {
-      second.once('close', () => resolve());
+    const closedByServer = await new Promise<boolean>(resolve => {
+      second.once('close', () => resolve(true));
       // If server doesn't close quickly, fail fast.
-      setTimeout(() => resolve(), 1000);
+      setTimeout(() => resolve(false), 1000);
     });
 
-    first.end();
+    expect(closedByServer).toBe(true);
+
     second.destroy();
+    await closeClient(first);
   });
 });
