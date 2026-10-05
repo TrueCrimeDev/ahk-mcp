@@ -3,7 +3,7 @@
  * T011: Unit tests for metadata extractor
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { MetadataExtractor } from '../../src/core/metadata-extractor.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -134,7 +134,7 @@ class MyLib {
 
       const metadata = await extractor.extract(filePath);
 
-      expect(metadata.description).toContain('test library');
+      expect(metadata.documentation.description).toContain('test library');
     });
 
     it('should fall back to plain comments when no JSDoc', async () => {
@@ -150,7 +150,9 @@ class MyLib {
 
       const metadata = await extractor.extract(filePath);
 
-      expect(metadata.description).toBeTruthy();
+      expect(metadata.documentation.description).toBe(
+        'Simple comment describing the library\nAdditional description line'
+      );
     });
 
     it('should handle files with no documentation', async () => {
@@ -163,7 +165,13 @@ class MyLib {
 
       const metadata = await extractor.extract(filePath);
 
-      expect(metadata.description).toBeDefined();
+      expect(metadata.documentation).toEqual({
+        description: undefined,
+        examples: [],
+        jsdocTags: [],
+        author: undefined,
+        credits: undefined,
+      });
     });
   });
 
