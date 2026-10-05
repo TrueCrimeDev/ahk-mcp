@@ -233,6 +233,16 @@ export function getAutoHotkeyExecutableCandidates(
     pushUniqueFile(candidates, executablePath);
   }
 
+  // The installer's "current user" option installs under %LOCALAPPDATA%\Programs.
+  if (process.env.LOCALAPPDATA) {
+    for (const exe of ['AutoHotkey64.exe', 'AutoHotkey.exe']) {
+      pushUniqueFile(
+        candidates,
+        path.win32.join(process.env.LOCALAPPDATA, 'Programs', 'AutoHotkey', 'v2', exe)
+      );
+    }
+  }
+
   return candidates;
 }
 
