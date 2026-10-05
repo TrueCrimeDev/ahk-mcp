@@ -1,6 +1,12 @@
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import { isolateAhkMcpConfig } from './isolated-config';
+
+// Keep tool state out of the developer's real ahk-mcp config (see isolated-config.ts).
+// Servers spawned by the suites inherit these variables through process.env.
+const removeIsolatedConfig = isolateAhkMcpConfig();
+afterAll(() => removeIsolatedConfig());
 
 // Integration test configuration
 const INTEGRATION_TEST_PORT = 3001;

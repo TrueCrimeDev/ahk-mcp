@@ -1,30 +1,38 @@
-import { describe, it, before, after } from 'node:test';
-import assert from 'node:assert';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from '@jest/globals';
 import { AhkEditTool } from '../../src/tools/ahk-file-edit.js';
+import type { McpToolResponse } from '../../src/types/mcp-types.js';
 import fs from 'fs/promises';
 import path from 'path';
 
+/** Text of the first content item, failing the test if it has none. */
+function firstText(result: McpToolResponse): string {
+  const text = result.content[0]?.text;
+  if (text === undefined) throw new Error('Tool result has no text content');
+  return text;
+}
+
 describe('Dry-run workflow integration', () => {
+  const fixturesDir = path.join(__dirname, '..', 'fixtures');
+  const testFilePath = path.join(fixturesDir, 'test-integration-dryrun.ahk');
   let editTool: AhkEditTool;
-  let testFilePath: string;
   let originalContent: string;
 
-  before(async () => {
+  beforeAll(async () => {
     editTool = new AhkEditTool();
-    const fixturesDir = path.join(process.cwd(), 'tests', 'fixtures');
-    const sourceFile = path.join(fixturesDir, 'test-quality-improvements.ahk');
-    testFilePath = path.join(fixturesDir, 'test-integration-dryrun.ahk');
+    originalContent = await fs.readFile(
+      path.join(fixturesDir, 'test-quality-improvements.ahk'),
+      'utf-8'
+    );
+  });
 
-    // Create test copy
-    originalContent = await fs.readFile(sourceFile, 'utf-8');
+  beforeEach(async () => {
+    // Every test starts from a fresh working copy of the fixture
     await fs.writeFile(testFilePath, originalContent);
   });
 
-  after(async () => {
-    // Cleanup
-    try {
-      await fs.unlink(testFilePath);
-    } catch {}
+  afterAll(async () => {
+    await fs.rm(testFilePath, { force: true });
+    await fs.rm(`${testFilePath}.bak`, { force: true });
   });
 
   it('should preview then execute batch replacement workflow', async () => {
@@ -35,24 +43,24 @@ describe('Dry-run workflow integration', () => {
       newContent: 'ThemeMode',
       all: true,
       dryRun: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
     // Verify it's a preview
-    assert.ok(preview.content[0].text.includes('DRY RUN'), 'Should show DRY RUN marker');
+    const previewText = firstText(preview);
+    expect(previewText).toContain('DRY RUN');
 
     // Extract expected change count
-    const previewText = preview.content[0].text;
     const matchCount = previewText.match(/(\d+) occurrence/i);
-    assert.ok(matchCount, 'Preview should show occurrence count');
+    expect(matchCount).not.toBeNull();
 
-    const expectedChanges = parseInt(matchCount[1]);
-    assert.ok(expectedChanges > 0, 'Should find at least one occurrence');
+    const expectedChanges = parseInt(matchCount![1]);
+    expect(expectedChanges).toBeGreaterThan(0);
 
     // Verify file NOT modified yet
     let fileContent = await fs.readFile(testFilePath, 'utf-8');
-    assert.ok(fileContent.includes('DarkMode'), 'File should still have original text');
-    assert.ok(!fileContent.includes('ThemeMode'), 'File should NOT have replacement text yet');
+    expect(fileContent).toContain('DarkMode');
+    expect(fileContent).not.toContain('ThemeMode');
 
     // Step 2: Execute actual edit (same parameters, dryRun=false)
     const actual = await editTool.execute({
@@ -61,31 +69,25 @@ describe('Dry-run workflow integration', () => {
       newContent: 'ThemeMode',
       all: true,
       dryRun: false,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
     // Verify it's not a preview
-    assert.ok(!actual.content[0].text.includes('DRY RUN'), 'Should NOT show DRY RUN marker');
-    assert.ok(actual.content[0].text.includes('Edit Successful') || actual.content[0].text.includes('✅'), 'Should show success');
+    const actualText = firstText(actual);
+    expect(actualText).not.toContain('DRY RUN');
+    expect(actualText).toMatch(/Edit Successful|✅/);
 
     // Step 3: Verify changes were actually made
     fileContent = await fs.readFile(testFilePath, 'utf-8');
     const actualChanges = (fileContent.match(/ThemeMode/g) || []).length;
 
-    assert.strictEqual(
-      actualChanges,
-      expectedChanges,
-      `Should have ${expectedChanges} replacements but found ${actualChanges}`
-    );
+    expect(actualChanges).toBe(expectedChanges);
 
     // Verify old text is gone
-    assert.ok(!fileContent.includes('DarkMode'), 'Original text should be replaced');
+    expect(fileContent).not.toContain('DarkMode');
   });
 
   it('should allow canceling after preview (file unchanged)', async () => {
-    // Reset file
-    await fs.writeFile(testFilePath, originalContent);
-
     // User previews
     const preview = await editTool.execute({
       action: 'replace',
@@ -93,44 +95,39 @@ describe('Dry-run workflow integration', () => {
       newContent: 'DeletedClass',
       all: true,
       dryRun: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
-    assert.ok(preview.content[0].text.includes('DRY RUN'), 'Preview shown');
+    expect(firstText(preview)).toContain('DRY RUN');
 
     // User decides NOT to proceed (doesn't call with dryRun=false)
     // Verify file unchanged
     const fileContent = await fs.readFile(testFilePath, 'utf-8');
-    assert.ok(fileContent.includes('TestClass'), 'Original class name preserved');
-    assert.ok(!fileContent.includes('DeletedClass'), 'Replacement not applied');
+    expect(fileContent).toContain('TestClass');
+    expect(fileContent).not.toContain('DeletedClass');
   });
 
   it('should handle regex patterns in dry-run', async () => {
-    // Reset file
-    await fs.writeFile(testFilePath, originalContent);
-
     const preview = await editTool.execute({
       action: 'replace',
-      search: 'Test\\w+',  // Regex pattern
+      search: 'Test\\w+', // Regex pattern
       newContent: 'MyClass',
       regex: true,
       all: true,
       dryRun: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
-    assert.ok(preview.content[0].text.includes('DRY RUN'), 'Should preview regex');
-    assert.ok(preview.content[0].text.match(/\d+ occurrence/i), 'Should show match count');
+    const previewText = firstText(preview);
+    expect(previewText).toContain('DRY RUN');
+    expect(previewText).toMatch(/\d+ occurrence/i);
 
     // File unchanged
     const fileContent = await fs.readFile(testFilePath, 'utf-8');
-    assert.ok(fileContent.includes('TestClass'), 'Regex not applied in preview');
+    expect(fileContent).toContain('TestClass');
   });
 
   it('should work with insert action in dry-run', async () => {
-    // Reset file
-    await fs.writeFile(testFilePath, originalContent);
-
     const lines = originalContent.split('\n');
     const targetLine = 5;
 
@@ -139,15 +136,16 @@ describe('Dry-run workflow integration', () => {
       line: targetLine,
       newContent: '; This is a test comment',
       dryRun: true,
-      filePath: testFilePath
+      filePath: testFilePath,
     });
 
-    assert.ok(preview.content[0].text.includes('DRY RUN'), 'Should preview insert');
-    assert.ok(preview.content[0].text.includes(`Line ${targetLine}`), 'Should show target line');
+    const previewText = firstText(preview);
+    expect(previewText).toContain('DRY RUN');
+    expect(previewText).toContain(`Line ${targetLine}`);
 
     // File unchanged
     const fileContent = await fs.readFile(testFilePath, 'utf-8');
-    assert.ok(!fileContent.includes('This is a test comment'), 'Insert not applied');
-    assert.strictEqual(fileContent.split('\n').length, lines.length, 'Line count unchanged');
+    expect(fileContent).not.toContain('This is a test comment');
+    expect(fileContent.split('\n').length).toBe(lines.length);
   });
 });
