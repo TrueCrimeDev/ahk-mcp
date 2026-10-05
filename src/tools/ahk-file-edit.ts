@@ -791,6 +791,11 @@ export class AhkEditTool {
         ],
       };
 
+      // Add deprecation warnings if any (as the dry-run path and the other edit tools do)
+      if (deprecatedUsed.length > 0) {
+        result = addDeprecationWarning(result, deprecatedUsed);
+      }
+
       // Apply output path interception for cross-platform compatibility
       const outputInterception = pathInterceptor.interceptOutput('AHK_File_Edit', result);
       if (outputInterception.success) {
