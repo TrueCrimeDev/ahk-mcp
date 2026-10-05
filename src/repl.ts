@@ -165,7 +165,7 @@ export class ReplSession {
    *
    * Trade-off: statements with EXTERNAL side effects (Run, file writes, MsgBox,
    * HTTP) re-execute on every later call. Keep AHK_Eval to expressions and
-   * variable assignments; use AHK_Run for scripts. AHK_Repl_Reset clears history.
+   * variable assignments; use AHK_Run for scripts. AHK_Eval { reset: true } clears history.
    */
   async send(
     expr: string,

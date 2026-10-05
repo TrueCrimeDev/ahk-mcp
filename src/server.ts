@@ -299,7 +299,7 @@ export class AutoHotkeyMcpServer {
       {
         enforceStrictCapabilities: true,
         instructions:
-          'Prefer read-only analysis and preview modes before edits or execution. Establish a target with AHK_File_Active, run AHK_Diagnostics or AHK_Lint before AHK_Run, and request task execution only when a tool advertises execution.taskSupport as optional.',
+          'Prefer read-only analysis and preview modes before edits or execution. Establish a target with AHK_File_Active, check it with AHK_Check before AHK_Run, use AHK_Navigate for definitions, references and renames, and request task execution only when a tool advertises execution.taskSupport as optional. Only the core toolset is listed by default; AHK_Settings enable_toolset adds debug, library, uia, extras or legacy tools.',
         capabilities: {
           tools: {
             listChanged: true,
@@ -1461,7 +1461,7 @@ export class AutoHotkeyMcpServer {
             {
               uri,
               mimeType: 'text/markdown',
-              text: '## 🎯 AutoHotkey Context Available\n\nUse the `AHK_Context_Injector` tool to analyze your prompts and get relevant AutoHotkey documentation automatically injected.',
+              text: '## 🎯 AutoHotkey Context Available\n\nUse the `AHK_Doc_Search` tool to look up AutoHotkey v2 functions, classes and directives.',
             },
           ],
           ...this.getDiscoveryCacheHints(),
@@ -2100,7 +2100,7 @@ F12::hkManager.ToggleHotkey("F1", (*) => MsgBox("F1 pressed!"), "Example hotkey"
           {
             uri: originalUri,
             mimeType: 'text/markdown',
-            text: '## 🎯 AutoHotkey Context Available\n\nUse the `AHK_Context_Injector` tool to analyze your prompts and get relevant AutoHotkey documentation automatically injected.',
+            text: '## 🎯 AutoHotkey Context Available\n\nUse the `AHK_Doc_Search` tool to look up AutoHotkey v2 functions, classes and directives.',
           },
         ],
       };

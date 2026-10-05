@@ -64,7 +64,7 @@ export type AhkCloudValidateArgs = z.infer<typeof AhkCloudValidateArgsSchema>;
 
 export const ahkCloudValidateToolDefinition = {
   name: 'AHK_Cloud_Validate',
-  description: `Validate AHK v2 code by running it with the local AutoHotkey interpreter (a temp copy; nothing is uploaded). The code executes, so side effects such as Run, file writes or GUIs happen. Use AHK_Lint for static checks that run nothing.
+  description: `Validate AHK v2 code by running it with the local AutoHotkey interpreter (a temp copy; nothing is uploaded). The code executes, so side effects such as Run, file writes or GUIs happen. Use AHK_Check for checks that run nothing.
 
 **Modes:**
 - \`validate\`: One-shot validation of code snippet
