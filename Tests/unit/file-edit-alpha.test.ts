@@ -16,7 +16,8 @@ describe('AHK_File_Edit alpha-version fallback', () => {
   const savedAllowed = process.env.AHK_MCP_ALLOWED_DIRS;
 
   beforeAll(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ahk-alpha-'));
+    // realpath: Windows temp paths can be 8.3 short names (RUNNER~1), tools report long ones.
+    tmpDir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'ahk-alpha-')));
     target = path.join(tmpDir, 'script.ahk');
     fs.writeFileSync(target, 'MsgBox("hi")\n');
     process.env.AHK_MCP_ALLOWED_DIRS = tmpDir;

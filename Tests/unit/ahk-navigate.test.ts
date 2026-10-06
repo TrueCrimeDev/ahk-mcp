@@ -74,7 +74,8 @@ describe('AhkNavigateTool', () => {
   const savedEnv = { ...process.env };
 
   beforeAll(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ahk-nav-'));
+    // realpath: Windows temp paths can be 8.3 short names (RUNNER~1), tools report long ones.
+    tmpDir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'ahk-nav-')));
     fs.mkdirSync(path.join(tmpDir, 'lib'));
     mainFile = path.join(tmpDir, 'main.ahk');
     fs.writeFileSync(mainFile, SCRIPT);

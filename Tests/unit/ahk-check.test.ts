@@ -99,7 +99,8 @@ describe('AhkCheckTool', () => {
   const savedEnv = { ...process.env };
 
   beforeAll(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ahk-check-'));
+    // realpath: Windows temp paths can be 8.3 short names (RUNNER~1), tools report long ones.
+    tmpDir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'ahk-check-')));
     process.env.AHK_MCP_ALLOWED_DIRS = tmpDir;
     // Make sure no real interpreter or language server is picked up on a dev machine.
     process.env.AHK_PATH = path.join(tmpDir, 'missing', 'AutoHotkey64.exe');
