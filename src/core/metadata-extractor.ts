@@ -168,7 +168,8 @@ export class MetadataExtractor {
   /**
    * Extract documentation from comments
    *
-   * Supports both JSDoc-style and plain block comments
+   * Supports both JSDoc-style and plain block comments. Without a JSDoc description,
+   * the leading `;` comment block (the usual AutoHotkey file header) is the description.
    *
    * @param content - File content
    * @returns Documentation information
@@ -218,6 +219,10 @@ export class MetadataExtractor {
       }
     }
 
+    if (!description) {
+      description = this.extractLeadingLineComments(content);
+    }
+
     // Extract block comments for author/credits
     const blockCommentPattern = /\/\*\s*([\s\S]*?)\*\//g;
     while ((match = blockCommentPattern.exec(content)) !== null) {
@@ -244,6 +249,31 @@ export class MetadataExtractor {
       author,
       credits: credits.length > 0 ? credits : undefined,
     };
+  }
+
+  /**
+   * Collect the first block of `;` line comments at the top of a file, skipping blank
+   * lines and directives such as #Requires that precede it.
+   *
+   * @param content - File content
+   * @returns The comment text without the `;` markers, or undefined if there is none
+   */
+  private extractLeadingLineComments(content: string): string | undefined {
+    const commentLines: string[] = [];
+
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (line.startsWith(';')) {
+        commentLines.push(line.replace(/^;+\s*/, ''));
+      } else if (commentLines.length === 0 && (line === '' || line.startsWith('#'))) {
+        continue;
+      } else {
+        break;
+      }
+    }
+
+    const text = commentLines.join('\n').trim();
+    return text || undefined;
   }
 
   /**

@@ -72,6 +72,8 @@ export class ToolRegistry {
       { name: 'AHK_Debug_DBGp', instance: 'ahkDebugDBGpToolInstance' },
       { name: 'AHK_Eval', instance: 'ahkEvalToolInstance' },
       { name: 'AHK_Repl_Reset', instance: 'ahkReplResetToolInstance' },
+      { name: 'AHK_Check', instance: 'ahkCheckToolInstance' },
+      { name: 'AHK_Navigate', instance: 'ahkNavigateToolInstance' },
     ];
 
     coreTools.forEach(tool => {

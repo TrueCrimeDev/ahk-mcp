@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach } from '@jest/globals';
-import { SmartContextCache, OrchestrationContext, FileAnalysisResult } from '../../src/core/orchestration-context.js';
+import {
+  SmartContextCache,
+  OrchestrationContext,
+  FileAnalysisResult,
+} from '../../src/core/orchestration-context.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 
@@ -23,7 +27,7 @@ describe('SmartContextCache', () => {
         analysisResult: null,
         analysisTimestamp: Date.now(),
         fileModifiedTime: Date.now(),
-        operationHistory: []
+        operationHistory: [],
       };
 
       cache.set(testFilePath, ctx);
@@ -39,7 +43,7 @@ describe('SmartContextCache', () => {
         analysisResult: null,
         analysisTimestamp: Date.now(),
         fileModifiedTime: Date.now(),
-        operationHistory: []
+        operationHistory: [],
       };
 
       expect(() => cache.set('invalid-path', ctx)).toThrow();
@@ -53,7 +57,7 @@ describe('SmartContextCache', () => {
         analysisResult: null,
         analysisTimestamp: Date.now(),
         fileModifiedTime: Date.now(),
-        operationHistory: []
+        operationHistory: [],
       };
 
       cache.set(testFilePath, ctx);
@@ -71,7 +75,7 @@ describe('SmartContextCache', () => {
         analysisResult: null,
         analysisTimestamp: Date.now(),
         fileModifiedTime: Date.now(),
-        operationHistory: []
+        operationHistory: [],
       };
 
       const ctx2: OrchestrationContext = {
@@ -79,7 +83,7 @@ describe('SmartContextCache', () => {
         analysisResult: null,
         analysisTimestamp: Date.now(),
         fileModifiedTime: Date.now(),
-        operationHistory: []
+        operationHistory: [],
       };
 
       cache.set('C:\\test\\file1.ahk', ctx1);
@@ -100,7 +104,7 @@ describe('SmartContextCache', () => {
         analysisResult: null,
         analysisTimestamp: Date.now(),
         fileModifiedTime: Date.now(),
-        operationHistory: []
+        operationHistory: [],
       };
 
       cache.set(testFilePath, ctx);

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "MCP_TIMEOUT": "30000",
+    "MCP_TOOL_TIMEOUT": "60000",
+    "MAX_MCP_OUTPUT_TOKENS": "50000"
+  },
+  "permissions": {
+    "allow": [
+      "mcp__ahk",
+      "Bash(npm run build)",
+      "PowerShell(npm run build)",
+      "Bash(npm test)",
+      "PowerShell(npm test)",
+      "Bash(npm run test:unit)",
+      "PowerShell(npm run test:unit)",
+      "Bash(npm run lint)",
+      "PowerShell(npm run lint)",
+      "Bash(npm run check:types)",
+      "PowerShell(npm run check:types)",
+      "Bash(npm run format:check)",
+      "PowerShell(npm run format:check)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./.env.test)",
+      "Read(./.env.production)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|mcp__ahk__AHK_File_Edit|mcp__ahk__AHK_File_Create",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/validate-ahk.ps1\"; exit $LASTEXITCODE",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

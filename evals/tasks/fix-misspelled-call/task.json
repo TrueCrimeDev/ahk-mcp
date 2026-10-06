@@ -1,0 +1,18 @@
+{
+  "id": "fix-misspelled-call",
+  "prompt": "main.ahk fails to load because it calls a function that does not exist. Find the function it meant to call and fix the call. Do not change files under lib/.",
+  "assert": [
+    {
+      "file": "main.ahk",
+      "notMatch": "SaveConfg",
+      "why": "misspelled call still present"
+    },
+    {
+      "file": "main.ahk",
+      "match": "SaveConfig\\(",
+      "why": "call to SaveConfig missing"
+    },
+    { "file": "lib/config.ahk", "unchanged": true },
+    { "check": "main.ahk" }
+  ]
+}

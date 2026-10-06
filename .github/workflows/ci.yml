@@ -1,21 +1,26 @@
-name: CI/CD Pipeline
+name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [master]
   pull_request:
-    branches: [ main, develop ]
-  release:
-    types: [ published ]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  NODE_VERSION: '20'
-  CACHE_VERSION: v1
+  NODE_VERSION: "20"
 
 jobs:
-  # Code Quality and Linting
+  # Code quality: ESLint, TypeScript, formatting
   lint:
-    name: Code Quality
+    name: Lint, types & formatting
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -25,23 +30,23 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
 
       - name: Run ESLint (maintained scope)
-        run: npm run lint:maintained
+        run: npm run lint
 
       - name: TypeScript type checking
-        run: npx tsc --noEmit
+        run: npm run check:types
 
       - name: Check code formatting
-        run: npx prettier --check "src/**/*.ts" "tests/**/*.ts"
+        run: npx prettier --check "src/**/*.ts" "Tests/**/*.ts"
 
-  # Security Scanning
-  security:
-    name: Security Scan
+  # Known vulnerabilities in what ships (dev-only dependencies are covered by security.yml)
+  audit:
+    name: Production dependency audit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -51,34 +56,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Run npm audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=moderate
 
-      - name: Run npm audit
-        run: npm audit --audit-level moderate
-
-      - name: Run Snyk security scan
-        uses: snyk/actions/node@master
-        continue-on-error: true
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
-  # Build and Test
+  # Build and test on the supported Node LTS lines (package.json engines: >=20)
   build-and-test:
-    name: Build & Test
+    name: Build & test (${{ matrix.os }}, Node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [18, 20, 21]
-        exclude:
-          # Exclude some combinations to reduce CI load
-          - os: macos-latest
-            node-version: 18
-          - os: windows-latest
-            node-version: 18
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20, 22]
 
     steps:
       - name: Checkout code
@@ -88,7 +78,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'npm'
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -96,160 +86,32 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Run unit tests
+      - name: Run unit and contract tests
         run: npm test
 
+      # Needs dist/ from the build step (spawns the built server)
       - name: Run integration tests
         run: npm run test:integration
 
-      - name: Upload coverage reports
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '20'
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage/lcov.info
-          flags: unittests
-          name: codecov-umbrella
+      - name: Run portable runtime tests
+        run: npm run test:portable
 
-  # AutoHotkey Integration Tests
-  ahk-integration:
-    name: AutoHotkey Integration
-    runs-on: windows-latest
-    needs: [lint, build-and-test]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      # Headless MCP protocol checks against the built server (stdio and HTTP)
+      - name: Smoke test MCP over stdio
+        run: npm run smoke:mcp
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+      - name: Smoke test MCP 2026-07-28 protocol
+        run: npm run smoke:mcp:2026
 
-      - name: Install AutoHotkey v2
-        run: |
-          Invoke-WebRequest -Uri "https://www.autohotkey.com/download/2.0/AutoHotkey_2.0.12_setup.exe" -OutFile "ahk-installer.exe"
-          Start-Process -FilePath "ahk-installer.exe" -ArgumentList "/S", "/D=C:\AutoHotkey" -Wait
-          echo "C:\AutoHotkey" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Smoke test MCP over HTTP
+        run: npm run smoke:http
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build project
-        run: npm run build
-
-      - name: Run AutoHotkey tests
-        run: npm run test:ahk
-
-      - name: Test MCP server functionality
-        run: npm run test:mcp
-
-  # Performance Tests
-  performance:
-    name: Performance Tests
-    runs-on: ubuntu-latest
-    needs: [build-and-test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build project
-        run: npm run build
-
-      - name: Run performance benchmarks
-        run: npm run test:performance
-
-      - name: Upload performance results
-        uses: actions/upload-artifact@v3
-        with:
-          name: performance-results
-          path: performance-results.json
-
-  # Documentation Build
-  docs:
-    name: Documentation
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build documentation
-        run: npm run docs:build
-
-      - name: Deploy to GitHub Pages
-        if: github.ref == 'refs/heads/main'
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs/dist
-
-  # Release
-  release:
-    name: Release
-    runs-on: ubuntu-latest
-    needs: [lint, security, build-and-test, ahk-integration]
-    if: github.event_name == 'release'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build project
-        run: npm run build
-
-      - name: Run tests
-        run: npm test
-
-      - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Create GitHub Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
-  # Docker Build
+  # Verify the production image still builds (not pushed)
   docker:
-    name: Docker Build
+    name: Docker build
     runs-on: ubuntu-latest
     needs: [build-and-test]
-    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -257,31 +119,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
-        if: github.event_name == 'release'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ahk-mcp-server
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
-      - name: Build and push Docker image
+      - name: Build production image
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name == 'release' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          target: production
+          platforms: linux/amd64
+          push: false
+          tags: ahk-mcp-server:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max

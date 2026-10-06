@@ -7,7 +7,6 @@
  */
 /** @type {import('jest').Config} */
 module.exports = {
-  preset: 'ts-jest',
   testEnvironment: 'node',
   roots: ['<rootDir>/src', '<rootDir>/Tests'],
   testMatch: [
@@ -16,7 +15,12 @@ module.exports = {
     // Note: Integration tests excluded from coverage to keep reports focused
   ],
   transform: {
-    '^.+\\.ts$': 'ts-jest',
+    // Jest loads the suites as CommonJS and ts-jest already compiles them that way, so its
+    // per-file notice TS151002 ("hybrid module kind ... isolatedModules") is informational
+    // only. Silence it rather than act on it: isolatedModules would turn off type-checking
+    // of the tests, and overriding tsconfig.json's NodeNext changes how src/ type-checks
+    // (src/ uses import.meta, and zod's types then hit TS2589 in schema-generator.ts).
+    '^.+\\.ts$': ['ts-jest', { diagnostics: { ignoreCodes: [151002] } }],
   },
   collectCoverageFrom: [
     'src/**/*.ts',

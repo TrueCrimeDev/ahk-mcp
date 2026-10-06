@@ -2,6 +2,14 @@ import { z } from 'zod';
 import logger from '../logger.js';
 import { toolSettings } from '../core/tool-settings.js';
 import { safeParse } from '../core/validation-middleware.js';
+import {
+  TOOLSETS,
+  TOOLSET_DESCRIPTIONS,
+  getEnabledToolsets,
+  parseToolsets,
+  resetToolsets,
+  setToolsetEnabled,
+} from '../core/toolsets.js';
 import type { McpToolResponse } from '../types/mcp-types.js';
 
 export const AhkSettingsArgsSchema = z.object({
@@ -20,9 +28,13 @@ export const AhkSettingsArgsSchema = z.object({
       'enable_all',
       'disable_all',
       'reset',
+      'enable_toolset',
+      'disable_toolset',
+      'reset_toolsets',
     ])
     .default('get'),
   tool: z.string().optional().describe('Tool name for enable/disable actions'),
+  toolset: z.string().optional().describe('Toolset for enable_toolset/disable_toolset'),
   settings: z
     .object({
       allowFileEditing: z.boolean().optional(),
@@ -42,7 +54,7 @@ export const AhkSettingsArgsSchema = z.object({
 
 export const ahkSettingsToolDefinition = {
   name: 'AHK_Settings',
-  description: `Manage tool settings and enable/disable features`,
+  description: `Manage tool settings and toolsets. Only the core toolset is listed by default; enable_toolset adds debug, library, uia, extras or legacy tools. Example: { "action": "enable_toolset", "toolset": "uia" }`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -62,6 +74,9 @@ export const ahkSettingsToolDefinition = {
           'enable_all',
           'disable_all',
           'reset',
+          'enable_toolset',
+          'disable_toolset',
+          'reset_toolsets',
         ],
         default: 'get',
         description: 'Action to perform',
@@ -69,6 +84,11 @@ export const ahkSettingsToolDefinition = {
       tool: {
         type: 'string',
         description: 'Tool name for enable/disable actions',
+      },
+      toolset: {
+        type: 'string',
+        enum: [...TOOLSETS],
+        description: 'Toolset for enable_toolset/disable_toolset (changes which tools are listed)',
       },
       settings: {
         type: 'object',
@@ -96,7 +116,7 @@ export class AhkSettingsTool {
       const parsed = safeParse(args, AhkSettingsArgsSchema, 'AHK_Settings');
       if (!parsed.success) return parsed.error;
 
-      const { action, tool, settings } = parsed.data;
+      const { action, tool, toolset, settings } = parsed.data;
 
       switch (action) {
         case 'get': {
@@ -122,10 +142,10 @@ export class AhkSettingsTool {
           response +=
             '\n  ℹ️ Legacy alias `AHK_Active_File` remains callable but is hidden from tool discovery.\n';
 
-          response += '\n**🔧 Core Tools:** (always enabled)\n';
-          const coreTools = ['AHK_Diagnostics', 'AHK_Analyze', 'AHK_Run', 'AHK_Summary'];
-          for (const t of coreTools) {
-            response += `  ✅ ${t}\n`;
+          const enabledToolsets = getEnabledToolsets();
+          response += '\n**🧰 Toolsets:** (listed in tools/list)\n';
+          for (const name of TOOLSETS) {
+            response += `  ${enabledToolsets.has(name) ? '✅' : '❌'} ${name}: ${TOOLSET_DESCRIPTIONS[name]}\n`;
           }
 
           response += '\n**🛡️ Global Settings:**\n';
@@ -169,13 +189,7 @@ export class AhkSettingsTool {
           }
 
           // Prevent disabling core tools
-          const coreTools = [
-            'AHK_Diagnostics',
-            'AHK_Analyze',
-            'AHK_Run',
-            'AHK_Summary',
-            'AHK_Settings',
-          ];
+          const coreTools = ['AHK_Settings'];
           if (coreTools.includes(tool)) {
             return {
               content: [
@@ -333,6 +347,36 @@ export class AhkSettingsTool {
               {
                 type: 'text',
                 text: '✅ Settings updated successfully',
+              },
+            ],
+          };
+        }
+
+        case 'enable_toolset':
+        case 'disable_toolset': {
+          const parsedToolset = parseToolsets(toolset)?.[0];
+          if (!toolset || !parsedToolset || toolset.toLowerCase() === 'all') {
+            throw new Error(`toolset must be one of: ${TOOLSETS.join(', ')}`);
+          }
+          const enable = action === 'enable_toolset';
+          const next = setToolsetEnabled(parsedToolset, enable);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `${enable ? '✅ Enabled' : '❌ Disabled'} toolset '${parsedToolset}'. Listed toolsets: ${next.join(', ') || '(none; AHK_Settings stays listed)'}`,
+              },
+            ],
+          };
+        }
+
+        case 'reset_toolsets': {
+          const next = resetToolsets();
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Toolsets reset to AHK_MCP_TOOLSETS or the default: ${next.join(', ')}`,
               },
             ],
           };

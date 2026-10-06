@@ -15,6 +15,8 @@
     "build": "npm run clean && node node_modules/typescript/bin/tsc -p tsconfig.build.json",
     "build:portable": "node scripts/build-portable-runtime.mjs",
     "test:portable": "node --test Tests/portable-runtime.test.mjs",
+    "test:evals": "node --test evals/grade.test.mjs",
+    "eval:tasks": "node evals/run-task-evals.mjs",
     "build:restart": "npm run build && npm run claude:restart",
     "watch": "node node_modules/typescript/bin/tsc -w",
     "watch:restart": "npm run build:restart && npm run claude:watch",

@@ -126,7 +126,7 @@ Shows a DRY RUN report instead of touching the file.
 - Running batch replacements without \`dryRun: true\` first
 - Disabling backups on production files unless absolutely necessary
 
-**See also:** AHK_File_Edit_Advanced, AHK_File_Edit_Small, AHK_File_View, AHK_Smart_Orchestrator`,
+**See also:** AHK_File_View, AHK_Check (verify after editing), AHK_Navigate (rename across files)`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -791,6 +791,11 @@ export class AhkEditTool {
         ],
       };
 
+      // Add deprecation warnings if any (as the dry-run path and the other edit tools do)
+      if (deprecatedUsed.length > 0) {
+        result = addDeprecationWarning(result, deprecatedUsed);
+      }
+
       // Apply output path interception for cross-platform compatibility
       const outputInterception = pathInterceptor.interceptOutput('AHK_File_Edit', result);
       if (outputInterception.success) {
@@ -817,9 +822,11 @@ export class AhkEditTool {
             content: [
               {
                 type: 'text',
-                text: `Edit failed. Alpha version created and set as active.\n\nOriginal error: ${error instanceof Error ? error.message : String(error)}\n\nYou can now retry the edit on the alpha version.`,
+                text: `Error: Edit failed. Alpha version created and set as active.\n\nOriginal error: ${error instanceof Error ? error.message : String(error)}\n\nYou can now retry the edit on the alpha version.`,
               },
             ],
+            // The edit itself still failed; the alpha copy is a recovery aid.
+            isError: true,
           };
         }
       }
@@ -831,6 +838,7 @@ export class AhkEditTool {
             text: `Error: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
+        isError: true,
       };
     }
   }

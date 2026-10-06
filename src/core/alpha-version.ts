@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import logger from '../logger.js';
+import { envConfig } from './env-config.js';
 
 /**
  * Alpha version management system
@@ -73,10 +74,8 @@ export class AlphaVersionManager {
    * Get the state file path
    */
   private getStatePath(): string {
-    const appData = process.env.APPDATA || path.join(process.env.HOME || '', '.config');
-    const base =
-      process.platform === 'win32' ? appData : path.join(process.env.HOME || '', '.config');
-    return path.join(base, 'ahk-mcp', 'alpha-versions.json');
+    // Same directory as the rest of the server's state, so AHK_MCP_CONFIG_DIR applies.
+    return path.join(envConfig.getConfigDir(), 'alpha-versions.json');
   }
 
   /**

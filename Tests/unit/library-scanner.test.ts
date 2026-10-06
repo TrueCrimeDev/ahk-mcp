@@ -3,7 +3,7 @@
  * T010: Unit tests for library scanner
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { LibraryScanner } from '../../src/core/library-scanner.js';
 import fs from 'fs/promises';
 import path from 'path';

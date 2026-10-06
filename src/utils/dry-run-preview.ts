@@ -68,26 +68,32 @@ export class DryRunPreviewGenerator {
       const line = lines[i];
       let matched = false;
       let modifiedLine = line;
+      // Occurrences replaced on this line; a line can hold more than one when `all` is set.
+      let occurrences = 0;
 
       if (options.regex && searchPattern instanceof RegExp) {
         matched = searchPattern.test(line);
         if (matched) {
           modifiedLine = line.replace(searchPattern, replacement);
+          occurrences = searchPattern.global ? (line.match(searchPattern)?.length ?? 1) : 1;
         }
       } else {
         const searchStr = typeof search === 'string' ? search : search.toString();
         matched = line.includes(searchStr);
         if (matched) {
           if (options.all) {
-            modifiedLine = line.split(searchStr).join(replacement);
+            const parts = line.split(searchStr);
+            occurrences = parts.length - 1;
+            modifiedLine = parts.join(replacement);
           } else {
+            occurrences = 1;
             modifiedLine = line.replace(searchStr, replacement);
           }
         }
       }
 
       if (matched) {
-        totalChanges++;
+        totalChanges += occurrences;
 
         // Calculate character difference
         addedChars += modifiedLine.length;

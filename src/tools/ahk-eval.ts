@@ -16,27 +16,35 @@ export const replSession = new ReplSession();
 // AHK_Eval
 // ---------------------------------------------------------------------------
 
-export const AhkEvalArgsSchema = z.object({
-  expr: z.string().describe('A single AHK v2 expression, e.g. "2**10".'),
-  timeout_ms: z.number().optional(),
-});
+export const AhkEvalArgsSchema = z
+  .object({
+    expr: z.string().optional().describe('A single AHK v2 expression, e.g. "2**10".'),
+    reset: z.boolean().optional(),
+    timeout_ms: z.number().optional(),
+  })
+  .refine(args => args.expr !== undefined || args.reset === true, {
+    message: 'Provide expr, or reset: true',
+  });
 
 export const ahkEvalToolDefinition = {
   name: 'AHK_Eval',
   description: `Evaluate a single AutoHotkey v2 expression in a PERSISTENT interpreter; variables
-persist across calls until AHK_Repl_Reset. Expression-level only — use AHK_Run for
+persist across calls until { "reset": true } restarts it. Expression-level only — use AHK_Run for
 multi-line scripts. Requires the alpha.30+Console fork (Print()/Eval()).
 Example: { "expr": "x := 41" } then { "expr": "x + 1" } → 42.`,
   inputSchema: {
     type: 'object',
     properties: {
       expr: { type: 'string', description: 'A single AHK v2 expression, e.g. "2**10".' },
+      reset: {
+        type: 'boolean',
+        description: 'Restart the interpreter first, clearing all state (expr optional)',
+      },
       timeout_ms: {
         type: 'number',
         description: 'Per-call timeout in milliseconds (default 10000).',
       },
     },
-    required: ['expr'],
   },
 };
 
@@ -45,9 +53,13 @@ export class AhkEvalTool {
     const parsed = safeParse(args, AhkEvalArgsSchema, 'AHK_Eval');
     if (!parsed.success) return parsed.error;
 
-    const { expr, timeout_ms } = parsed.data;
+    const { expr, reset, timeout_ms } = parsed.data;
 
     try {
+      if (reset) replSession.reset();
+      if (expr === undefined) {
+        return { content: [{ type: 'text', text: 'Interpreter reset — state cleared.' }] };
+      }
       const result = await replSession.send(expr, timeout_ms, getCurrentAbortSignal());
       return { content: [{ type: 'text', text: formatEval(result) }] };
     } catch (error) {

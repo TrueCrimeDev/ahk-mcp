@@ -1,5 +1,13 @@
 # Claude Code Hooks Integration
 
+> **Active hook:** `.claude/hooks/validate-ahk.ps1`, which checks edited `.ahk`
+> files with AutoHotkey v2 `/Validate`. `scripts/setup-claude-code.ps1` wires it
+> from `.claude/settings.example.json`; see
+> [CLAUDE_CODE_WINDOWS.md](CLAUDE_CODE_WINDOWS.md). The Python auto-run hook
+> described below is kept for reference and is not wired. Its matcher uses the
+> old server name `ahk_mcp`; with the server registered as `ahk` it would be
+> `mcp__ahk__AHK_File_Edit.*`.
+
 ## Overview
 
 The ahk-mcp server integrates with Claude Code's hook system to provide

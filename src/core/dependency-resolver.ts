@@ -159,15 +159,16 @@ export class DependencyResolver {
       if (node === undefined) break;
       result.push(node);
 
-      // Get nodes that depend on this node (reverse graph)
-      const dependents = this.reverseGraph.get(node) || [];
-      for (const dependent of dependents) {
-        if (reachable.has(dependent)) {
-          const newDegree = (inDegree.get(dependent) || 0) - 1;
-          inDegree.set(dependent, newDegree);
+      // In-degrees count incoming dependent→dependency edges, so releasing this node
+      // decrements its own dependencies (forward graph), not its dependents.
+      const deps = this.graph.get(node) || [];
+      for (const dep of deps) {
+        if (reachable.has(dep)) {
+          const newDegree = (inDegree.get(dep) || 0) - 1;
+          inDegree.set(dep, newDegree);
 
           if (newDegree === 0) {
-            queue.push(dependent);
+            queue.push(dep);
           }
         }
       }

@@ -196,31 +196,62 @@ export class AhkLinter {
   }
 
   private checkTokenSequences(): void {
-    for (let i = 0; i < this.tokens.length - 1; i++) {
-      const current = this.tokens[i];
-      const next = this.tokens[i + 1];
+    // The lexer emits most multi-character operators (=>, ++, +=, //, >>, !==, ...) as
+    // single-character tokens, so judge a whole run of touching operator tokens at once.
+    // A run is valid when it splits into one AHK v2 operator followed only by prefix
+    // operators (x := -1, b == !c); a run after whitespace must be prefix operators only.
+    for (let i = 0; i < this.tokens.length; ) {
+      const first = this.tokens[i];
+      if (!first || !this.isOperator(first)) {
+        i++;
+        continue;
+      }
 
-      // Check for invalid operator sequences
-      if (this.isOperator(current) && this.isOperator(next)) {
-        // Allow some valid sequences like := or >=
-        const validSequences = [':=', '>=', '<=', '!=', '==', '**', '!~', '~='];
-        const sequence = current.value + next.value;
+      const run = this.collectRun(i);
+      const last = this.tokens[run.end - 1] ?? first;
+      if (run.text.length > 1 && !isValidOperatorRun(run.text)) {
+        this.addDiagnostic(
+          'InvalidOperatorSequence',
+          'error',
+          `Invalid operator sequence: ${run.text}`,
+          first.line,
+          first.column,
+          last.line,
+          last.column + last.value.length
+        );
+      }
 
-        if (!validSequences.includes(sequence)) {
+      const next = this.tokens[run.end];
+      if (next && this.isOperator(next) && next.line === last.line) {
+        const following = this.collectRun(run.end);
+        if (!isPrefixOperatorRun(following.text)) {
           this.addDiagnostic(
             'InvalidOperatorSequence',
             'error',
-            `Invalid operator sequence: ${sequence}`,
-            current.line,
-            current.column,
+            `Invalid operator sequence: ${run.text} ${following.text}`,
+            first.line,
+            first.column,
             next.line,
             next.column + next.value.length
           );
         }
       }
+      i = run.end;
+    }
 
-      // Check for missing assignment operator
-      if (current.type === TokenType.IDENTIFIER && next.type === TokenType.EQUALS) {
+    // `name = value` as a statement is v1 assignment; in v2 `=` only compares. Only flag
+    // it in statement position, never `if x = 5` or the first `=` of `==`.
+    for (let i = 0; i < this.tokens.length - 1; i++) {
+      const current = this.tokens[i];
+      const next = this.tokens[i + 1];
+      const prev = i > 0 ? this.tokens[i - 1] : undefined;
+      const after = this.tokens[i + 2];
+      if (!current || !next) continue;
+      const atStatementStart = !prev || prev.line !== current.line;
+      const isLoneEquals =
+        next.type === TokenType.EQUALS &&
+        !(after && after.line === next.line && after.start === next.end && this.isOperator(after));
+      if (current.type === TokenType.IDENTIFIER && atStatementStart && isLoneEquals) {
         this.addDiagnostic(
           'UseAssignmentOperator',
           'warning',
@@ -232,6 +263,22 @@ export class AhkLinter {
         );
       }
     }
+  }
+
+  /** Concatenated text of the touching operator tokens starting at `start`. */
+  private collectRun(start: number): { text: string; end: number } {
+    let text = '';
+    let k = start;
+    let prev: Token | undefined;
+    while (k < this.tokens.length) {
+      const token = this.tokens[k];
+      if (!token || !this.isOperator(token)) break;
+      if (prev && !(token.line === prev.line && token.start === prev.end)) break;
+      text += token.value;
+      prev = token;
+      k++;
+    }
+    return { text, end: k };
   }
 
   private checkStatementTermination(): void {
@@ -644,4 +691,79 @@ export class AhkLinter {
       },
     });
   }
+}
+
+/** AHK v2 operators that the lexer may split into single characters, longest first. */
+const AHK_OPERATORS = [
+  '>>>=',
+  '>>=',
+  '<<=',
+  '//=',
+  '??=',
+  '>>>',
+  '!==',
+  ':=',
+  '+=',
+  '-=',
+  '*=',
+  '/=',
+  '.=',
+  '|=',
+  '&=',
+  '^=',
+  '=>',
+  '++',
+  '--',
+  '==',
+  '!=',
+  '<=',
+  '>=',
+  '<<',
+  '>>',
+  '//',
+  '**',
+  '&&',
+  '||',
+  '??',
+  '~=',
+  '+',
+  '-',
+  '*',
+  '/',
+  '=',
+  '<',
+  '>',
+  '!',
+  '~',
+  '&',
+  '|',
+  '^',
+  '.',
+].sort((a, b) => b.length - a.length);
+
+const PREFIX_OPERATORS = new Set(['-', '+', '!', '~', '&', '*', '++', '--']);
+
+/** Split an operator run into AHK operators, longest match first; null if impossible. */
+function splitOperatorRun(run: string): string[] | null {
+  const parts: string[] = [];
+  let rest = run;
+  while (rest.length > 0) {
+    const op = AHK_OPERATORS.find(candidate => rest.startsWith(candidate));
+    if (!op) return null;
+    parts.push(op);
+    rest = rest.slice(op.length);
+  }
+  return parts;
+}
+
+function isPrefixOperatorRun(run: string): boolean {
+  const parts = splitOperatorRun(run);
+  return parts !== null && parts.every(part => PREFIX_OPERATORS.has(part));
+}
+
+function isValidOperatorRun(run: string): boolean {
+  const parts = splitOperatorRun(run);
+  if (!parts || parts.length === 0) return false;
+  // One operator, then only prefix operators (x := -1, x == !y, x++ is a single "++").
+  return parts.slice(1).every(part => PREFIX_OPERATORS.has(part));
 }

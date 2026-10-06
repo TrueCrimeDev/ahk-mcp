@@ -1,12 +1,11 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert';
+import { describe, it, expect } from '@jest/globals';
 import { DebugFormatter, createDebugFormatter } from '../../src/utils/debug-formatter.js';
 
 describe('Debug Formatter Utility', () => {
   describe('DebugFormatter', () => {
     it('should create formatter with default settings', () => {
       const formatter = new DebugFormatter();
-      assert.strictEqual(formatter.getEntryCount(), 0);
+      expect(formatter.getEntryCount()).toBe(0);
     });
 
     it('should add entries correctly', () => {
@@ -15,10 +14,10 @@ describe('Debug Formatter Utility', () => {
       formatter.addEntry({
         tool: 'AHK_File_Detect',
         reason: 'Test reason',
-        duration: 100
+        duration: 100,
       });
 
-      assert.strictEqual(formatter.getEntryCount(), 1);
+      expect(formatter.getEntryCount()).toBe(1);
     });
 
     it('should add multiple entries', () => {
@@ -27,16 +26,16 @@ describe('Debug Formatter Utility', () => {
       formatter.addEntry({
         tool: 'AHK_File_Detect',
         reason: 'First call',
-        duration: 50
+        duration: 50,
       });
 
       formatter.addEntry({
         tool: 'AHK_Analyze',
         reason: 'Second call',
-        duration: 100
+        duration: 100,
       });
 
-      assert.strictEqual(formatter.getEntryCount(), 2);
+      expect(formatter.getEntryCount()).toBe(2);
     });
 
     it('should format output with entries', () => {
@@ -45,15 +44,15 @@ describe('Debug Formatter Utility', () => {
       formatter.addEntry({
         tool: 'AHK_File_Detect',
         reason: 'Testing',
-        duration: 45
+        duration: 45,
       });
 
       const output = formatter.format();
 
-      assert.ok(output.includes('🔍 **DEBUG: Orchestration Log**'));
-      assert.ok(output.includes('AHK_File_Detect'));
-      assert.ok(output.includes('Testing'));
-      assert.ok(output.includes('45ms'));
+      expect(output).toContain('🔍 **DEBUG: Orchestration Log**');
+      expect(output).toContain('AHK_File_Detect');
+      expect(output).toContain('Testing');
+      expect(output).toContain('45ms');
     });
 
     it('should include cache status when provided', () => {
@@ -63,13 +62,13 @@ describe('Debug Formatter Utility', () => {
         tool: 'AHK_Analyze',
         reason: 'Cache test',
         duration: 10,
-        cacheStatus: 'HIT'
+        cacheStatus: 'HIT',
       });
 
       const output = formatter.format();
 
-      assert.ok(output.includes('Cache: HIT'));
-      assert.ok(output.includes('⚡')); // Cache hit emoji
+      expect(output).toContain('Cache: HIT');
+      expect(output).toContain('⚡'); // Cache hit emoji
     });
 
     it('should show cache MISS without emoji', () => {
@@ -79,13 +78,13 @@ describe('Debug Formatter Utility', () => {
         tool: 'AHK_Analyze',
         reason: 'Cache miss',
         duration: 100,
-        cacheStatus: 'MISS'
+        cacheStatus: 'MISS',
       });
 
       const output = formatter.format();
 
-      assert.ok(output.includes('Cache: MISS'));
-      assert.ok(!output.includes('⚡'));
+      expect(output).toContain('Cache: MISS');
+      expect(output).not.toContain('⚡');
     });
 
     it('should include metadata fields', () => {
@@ -97,14 +96,14 @@ describe('Debug Formatter Utility', () => {
         duration: 25,
         metadata: {
           lines: '10-50',
-          mode: 'structured'
-        }
+          mode: 'structured',
+        },
       });
 
       const output = formatter.format();
 
-      assert.ok(output.includes('Lines: 10-50'));
-      assert.ok(output.includes('Mode: structured'));
+      expect(output).toContain('Lines: 10-50');
+      expect(output).toContain('Mode: structured');
     });
 
     it('should show total summary', () => {
@@ -113,19 +112,19 @@ describe('Debug Formatter Utility', () => {
       formatter.addEntry({
         tool: 'Tool1',
         reason: 'First',
-        duration: 50
+        duration: 50,
       });
 
       formatter.addEntry({
         tool: 'Tool2',
         reason: 'Second',
-        duration: 75
+        duration: 75,
       });
 
       const output = formatter.format();
 
-      assert.ok(output.includes('⏱️ **Total**'));
-      assert.ok(output.includes('2 tool call(s)'));
+      expect(output).toContain('⏱️ **Total**');
+      expect(output).toContain('2 tool call(s)');
     });
 
     it('should show cache efficiency summary', () => {
@@ -135,20 +134,20 @@ describe('Debug Formatter Utility', () => {
         tool: 'Tool1',
         reason: 'First',
         duration: 50,
-        cacheStatus: 'HIT'
+        cacheStatus: 'HIT',
       });
 
       formatter.addEntry({
         tool: 'Tool2',
         reason: 'Second',
         duration: 100,
-        cacheStatus: 'HIT'
+        cacheStatus: 'HIT',
       });
 
       const output = formatter.format();
 
-      assert.ok(output.includes('💾 **Cache**'));
-      assert.ok(output.includes('2 hit(s)'));
+      expect(output).toContain('💾 **Cache**');
+      expect(output).toContain('2 hit(s)');
     });
 
     it('should truncate output when exceeding maxLength', () => {
@@ -158,14 +157,14 @@ describe('Debug Formatter Utility', () => {
         formatter.addEntry({
           tool: `Tool${i}`,
           reason: `Reason ${i} with very long text to force truncation`,
-          duration: 100
+          duration: 100,
         });
       }
 
       const output = formatter.format();
 
-      assert.ok(output.includes('debug output truncated'));
-      assert.ok(output.length <= 300); // Some buffer for truncation message
+      expect(output).toContain('debug output truncated');
+      expect(output.length).toBeLessThanOrEqual(300); // Some buffer for truncation message
     });
 
     it('should format time correctly', () => {
@@ -176,28 +175,28 @@ describe('Debug Formatter Utility', () => {
       formatter.addEntry({
         tool: 'Test',
         reason: 'Timing test',
-        duration: 100
+        duration: 100,
       });
 
       const output = formatter.format();
 
       // Should show MM:SS.mmm format
-      assert.ok(output.match(/\[\d{2}:\d{2}\.\d{3}\]/));
+      expect(output).toMatch(/\[\d{2}:\d{2}\.\d{3}\]/);
     });
 
     it('should return empty string when no entries', () => {
       const formatter = new DebugFormatter();
       const output = formatter.format();
 
-      assert.strictEqual(output, '');
+      expect(output).toBe('');
     });
 
     it('should track elapsed time', () => {
       const formatter = new DebugFormatter();
 
       const elapsed = formatter.getElapsedTime();
-      assert.ok(elapsed >= 0);
-      assert.ok(elapsed < 100); // Should be very small
+      expect(elapsed).toBeGreaterThanOrEqual(0);
+      expect(elapsed).toBeLessThan(100); // Should be very small
     });
 
     it('should clear entries and reset start time', () => {
@@ -206,15 +205,15 @@ describe('Debug Formatter Utility', () => {
       formatter.addEntry({
         tool: 'Test',
         reason: 'Before clear',
-        duration: 50
+        duration: 50,
       });
 
-      assert.strictEqual(formatter.getEntryCount(), 1);
+      expect(formatter.getEntryCount()).toBe(1);
 
       formatter.clear();
 
-      assert.strictEqual(formatter.getEntryCount(), 0);
-      assert.strictEqual(formatter.format(), '');
+      expect(formatter.getEntryCount()).toBe(0);
+      expect(formatter.format()).toBe('');
     });
 
     it('should handle entries with no cache status', () => {
@@ -223,13 +222,13 @@ describe('Debug Formatter Utility', () => {
       formatter.addEntry({
         tool: 'AHK_Run',
         reason: 'No cache needed',
-        duration: 200
+        duration: 200,
       });
 
       const output = formatter.format();
 
-      assert.ok(!output.includes('Cache:'));
-      assert.ok(output.includes('Duration: 200ms'));
+      expect(output).not.toContain('Cache:');
+      expect(output).toContain('Duration: 200ms');
     });
 
     it('should capitalize metadata keys', () => {
@@ -241,14 +240,14 @@ describe('Debug Formatter Utility', () => {
         duration: 10,
         metadata: {
           fileSize: '1024KB',
-          encoding: 'utf-8'
-        }
+          encoding: 'utf-8',
+        },
       });
 
       const output = formatter.format();
 
-      assert.ok(output.includes('FileSize: 1024KB'));
-      assert.ok(output.includes('Encoding: utf-8'));
+      expect(output).toContain('FileSize: 1024KB');
+      expect(output).toContain('Encoding: utf-8');
     });
   });
 
@@ -259,10 +258,10 @@ describe('Debug Formatter Utility', () => {
       formatter.addEntry({
         tool: 'Test',
         reason: 'Factory test',
-        duration: 10
+        duration: 10,
       });
 
-      assert.strictEqual(formatter.getEntryCount(), 1);
+      expect(formatter.getEntryCount()).toBe(1);
     });
 
     it('should create formatter with custom maxLength', () => {
@@ -273,14 +272,14 @@ describe('Debug Formatter Utility', () => {
         formatter.addEntry({
           tool: `Tool${i}`,
           reason: `Long reason text to test truncation at custom length ${i}`,
-          duration: i * 10
+          duration: i * 10,
         });
       }
 
       const output = formatter.format();
 
       // Should truncate at custom length
-      assert.ok(output.length <= 1100); // Some buffer
+      expect(output.length).toBeLessThanOrEqual(1100); // Some buffer
     });
   });
 
@@ -291,12 +290,12 @@ describe('Debug Formatter Utility', () => {
       formatter.addEntry({
         tool: 'SlowTool',
         reason: 'Very slow operation',
-        duration: 999999
+        duration: 999999,
       });
 
       const output = formatter.format();
 
-      assert.ok(output.includes('999999ms'));
+      expect(output).toContain('999999ms');
     });
 
     it('should handle zero duration', () => {
@@ -305,12 +304,12 @@ describe('Debug Formatter Utility', () => {
       formatter.addEntry({
         tool: 'InstantTool',
         reason: 'Instant operation',
-        duration: 0
+        duration: 0,
       });
 
       const output = formatter.format();
 
-      assert.ok(output.includes('0ms'));
+      expect(output).toContain('0ms');
     });
 
     it('should handle empty reason', () => {
@@ -319,12 +318,12 @@ describe('Debug Formatter Utility', () => {
       formatter.addEntry({
         tool: 'Test',
         reason: '',
-        duration: 10
+        duration: 10,
       });
 
       const output = formatter.format();
 
-      assert.ok(output.includes('Reason: '));
+      expect(output).toContain('Reason: ');
     });
 
     it('should handle very long tool names', () => {
@@ -333,12 +332,12 @@ describe('Debug Formatter Utility', () => {
       formatter.addEntry({
         tool: 'A'.repeat(100),
         reason: 'Long name test',
-        duration: 10
+        duration: 10,
       });
 
       const output = formatter.format();
 
-      assert.ok(output.includes('A'.repeat(100)));
+      expect(output).toContain('A'.repeat(100));
     });
 
     it('should handle special characters in metadata', () => {
@@ -349,13 +348,13 @@ describe('Debug Formatter Utility', () => {
         reason: 'Special chars',
         duration: 10,
         metadata: {
-          'special-key': 'value with $pecial ch@rs!'
-        }
+          'special-key': 'value with $pecial ch@rs!',
+        },
       });
 
       const output = formatter.format();
 
-      assert.ok(output.includes('value with $pecial ch@rs!'));
+      expect(output).toContain('value with $pecial ch@rs!');
     });
   });
 });

@@ -192,8 +192,9 @@ export class AhkDiagnosticProvider {
       // Check for common AutoHotkey v2 issues
 
       // Check for old v1 assignment syntax
+      // (`name => expr` is a fat-arrow property or getter, not an assignment)
       if (
-        trimmedLine.match(/^\w+\s*=\s*[^=]/) &&
+        trimmedLine.match(/^\w+\s*=\s*[^=>]/) &&
         !trimmedLine.includes('==') &&
         !trimmedLine.includes('!=')
       ) {
@@ -262,16 +263,17 @@ export class AhkDiagnosticProvider {
   }
 
   /**
-   * Check semantic errors - simplified to avoid false positives
+   * Check semantic errors. This pass must stay quiet on valid v2 code, so every rule is
+   * deliberately narrow:
+   * - duplicate function/class definitions, scoped to the enclosing class or function, so
+   *   same-named methods in different classes are not duplicates
+   * - v1 comma command syntax (`MsgBox, text`), which v2 rejects at load time
+   * - command-style calls without parentheses (`MsgBox "text"`), which v2 accepts, so they
+   *   are reported as a style hint only
+   * Lines inside an open `(` or `[` (continuation lines, continuation sections) are skipped.
    */
   private checkSemantics(code: string): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
-
-    // Lightweight AHK v2-aware semantic parser to avoid false positives
-    // - Detect duplicate function/class definitions
-    // - Detect legacy v1 command-style calls (e.g., MsgBox "text")
-    // - Avoid misclassifying keywords like "if" as functions
-
     const lines = code.split('\n');
 
     const keywordSet = new Set<string>([
@@ -279,6 +281,8 @@ export class AhkDiagnosticProvider {
       'else',
       'for',
       'while',
+      'loop',
+      'until',
       'switch',
       'case',
       'default',
@@ -289,150 +293,172 @@ export class AhkDiagnosticProvider {
       'throw',
       'break',
       'continue',
+      'goto',
       'class',
       'extends',
       'global',
       'local',
       'static',
-      'until',
+      'get',
+      'set',
+      'and',
+      'or',
+      'not',
+      'is',
+      'in',
+      'contains',
+      'as',
+      'super',
+      'this',
     ]);
 
-    const functionDefs = new Map<string, { line: number; start: number; end: number }>();
-    const classDefs = new Map<string, { line: number; start: number; end: number }>();
-
+    interface Scope {
+      key: string;
+      depth: number;
+      entered: boolean;
+    }
+    const scopes: Scope[] = [];
+    const definitions = new Set<string>();
+    let braceDepth = 0;
+    let groupDepth = 0; // open ( and [ carried across lines
     let inBlockComment = false;
 
-    const stripLineComment = (text: string): string => {
-      let inStr = false;
-      for (let i = 0; i < text.length; i++) {
-        const ch = text[i];
-        const prev = i > 0 ? text[i - 1] : '';
-        if (!inStr && ch === ';') return text.slice(0, i);
-        if (ch === '"' && prev !== '\\') inStr = !inStr;
+    const scopePrefix = (): string => scopes.map(s => s.key).join('.');
+
+    const nextCodeLineStartsWithBrace = (from: number): boolean => {
+      for (let i = from + 1; i < lines.length; i++) {
+        const t = (lines[i] ?? '').trim();
+        if (!t || t.startsWith(';')) continue;
+        return t.startsWith('{');
       }
-      return text;
+      return false;
+    };
+
+    const recordDefinition = (
+      kind: 'function' | 'class',
+      name: string,
+      lineIndex: number,
+      startChar: number,
+      opensScope: boolean
+    ): void => {
+      const key = `${scopePrefix()}::${kind}:${name.toLowerCase()}`;
+      if (definitions.has(key)) {
+        diagnostics.push(
+          this.createDiagnostic(
+            `Duplicate ${kind} definition: ${name}`,
+            lineIndex,
+            startChar,
+            startChar + name.length,
+            DiagnosticSeverity.Error,
+            kind === 'class' ? 'semantic.duplicateClass' : 'semantic.duplicateFunction'
+          )
+        );
+      } else {
+        definitions.add(key);
+      }
+      if (opensScope) {
+        scopes.push({ key: name.toLowerCase(), depth: braceDepth + 1, entered: false });
+      }
     };
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-      const raw = lines[lineIndex];
-      if (!raw) continue;
+      let line = lines[lineIndex] ?? '';
 
-      // Handle block comments /* ... */ spanning lines
-      let line = raw;
       if (inBlockComment) {
         const endIdx = line.indexOf('*/');
-        if (endIdx === -1) continue; // still inside block comment
+        if (endIdx === -1) continue;
         line = line.slice(endIdx + 2);
         inBlockComment = false;
       }
-      const startBlockIdx = line.indexOf('/*');
-      if (startBlockIdx !== -1) {
-        const endIdx = line.indexOf('*/', startBlockIdx + 2);
+      if (/^\s*\/\*/.test(line)) {
+        const endIdx = line.indexOf('*/');
         if (endIdx === -1) {
-          // Start of block, no end on this line
           inBlockComment = true;
-          line = line.slice(0, startBlockIdx);
-        } else {
-          // Remove the block comment portion within the same line
-          line = line.slice(0, startBlockIdx) + line.slice(endIdx + 2);
+          continue;
         }
+        line = line.slice(endIdx + 2);
       }
 
-      // Remove line comments respecting strings
-      line = stripLineComment(line);
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      if (trimmed.startsWith('#')) continue; // directives
+      const scan = scanAhkLine(line);
+      const trimmed = scan.code.trim();
+      const leadingSpaces = line.length - line.trimStart().length;
+      const insideGroup = groupDepth > 0;
 
-      // Detect function definitions: name(args) { ... } or name(args) => expr
-      // Ensure name is not a keyword like 'if', 'while', etc.
-      // Anchor at start (ignoring whitespace) to avoid matching calls/usages.
-      const fnMatch = trimmed.match(/^(?<name>[A-Za-z_]\w*)\s*\([^)]*\)\s*(\{|=>)?/);
-      if (fnMatch) {
-        const name = (fnMatch.groups?.name || '').toLowerCase();
-        const matchedName = fnMatch.groups?.name;
-        if (!matchedName) continue; // invariant: regex guarantees this group when match succeeds
-        if (!keywordSet.has(name)) {
-          const nameStartInTrimmed = trimmed.indexOf(matchedName);
-          const leadingSpaces = line.length - line.trimStart().length;
-          const startChar = leadingSpaces + nameStartInTrimmed;
-          const endChar = startChar + matchedName.length;
-
-          if (functionDefs.has(name)) {
-            diagnostics.push(
-              this.createDiagnostic(
-                `Duplicate function definition: ${matchedName}`,
-                lineIndex,
-                startChar,
-                endChar,
-                DiagnosticSeverity.Error,
-                'semantic.duplicateFunction'
-              )
-            );
-          } else {
-            functionDefs.set(name, { line: lineIndex, start: startChar, end: endChar });
+      if (trimmed && !trimmed.startsWith('#') && !insideGroup) {
+        // Function or method definition: [static] Name(params) { | => | <newline>{
+        const fnHead = trimmed.match(/^(?:static\s+)?(?<name>[A-Za-z_]\w*)\s*\(/);
+        const fnName = fnHead?.groups?.name;
+        let handled = false;
+        if (fnHead && fnName && !keywordSet.has(fnName.toLowerCase())) {
+          const closeIdx = findClosingParen(trimmed, fnHead[0].length - 1);
+          if (closeIdx !== -1) {
+            const rest = trimmed.slice(closeIdx + 1).trim();
+            const sameLineBrace = rest.startsWith('{');
+            const arrow = rest.startsWith('=>');
+            const nextLineBrace = rest === '' && nextCodeLineStartsWithBrace(lineIndex);
+            if (sameLineBrace || arrow || nextLineBrace) {
+              const startChar = leadingSpaces + trimmed.indexOf(fnName);
+              recordDefinition('function', fnName, lineIndex, startChar, !arrow);
+              handled = true;
+            }
           }
-          continue; // already handled this line
         }
-      }
 
-      // Detect class definitions
-      const clsMatch = trimmed.match(/^class\s+(?<cname>[A-Za-z_]\w*)\b/i);
-      if (clsMatch) {
-        const cname = (clsMatch.groups?.cname || '').toLowerCase();
-        const nameStartInTrimmed = trimmed.toLowerCase().indexOf(cname);
-        const leadingSpaces = line.length - line.trimStart().length;
-        const startChar = leadingSpaces + nameStartInTrimmed;
-        const endChar = startChar + (clsMatch.groups?.cname?.length || 0);
-        if (classDefs.has(cname)) {
-          diagnostics.push(
-            this.createDiagnostic(
-              `Duplicate class definition: ${clsMatch.groups?.cname}`,
-              lineIndex,
-              startChar,
-              endChar,
-              DiagnosticSeverity.Error,
-              'semantic.duplicateClass'
-            )
-          );
-        } else {
-          classDefs.set(cname, { line: lineIndex, start: startChar, end: endChar });
+        const clsMatch = handled ? null : trimmed.match(/^class\s+(?<cname>[A-Za-z_]\w*)\b/i);
+        const className = clsMatch?.groups?.cname;
+        if (clsMatch && className) {
+          const startChar = leadingSpaces + trimmed.indexOf(className);
+          recordDefinition('class', className, lineIndex, startChar, true);
+          handled = true;
         }
-        continue;
-      }
 
-      // Detect legacy v1 command-style usage (e.g., MsgBox "text", Sleep 1000)
-      // Heuristic: starts with Identifier + space, not a keyword, and not followed by '(' or ':='
-      // and not a hotkey or label (which include ':'), not 'return/throw/break/continue'.
-      const leadingIdentMatch = trimmed.match(/^(?<id>[A-Za-z_]\w*)\b(\s+)(?<rest>.+)$/);
-      if (leadingIdentMatch) {
-        const id = (leadingIdentMatch.groups?.id || '').toLowerCase();
-        const matchedId = leadingIdentMatch.groups?.id;
-        if (!matchedId) continue; // invariant: regex guarantees this group when match succeeds
-        if (!keywordSet.has(id)) {
-          // If immediately followed by '(' then it's a proper function call
-          // const afterIdent = trimmed.slice(leadingIdentMatch[0].length - (leadingIdentMatch.groups?.rest?.length || 0));
-          const hasParenCall = /^\(/.test(trimmed.slice(matchedId.length).trimStart());
-          const hasAssign = trimmed.includes(':=');
-          const looksLikeLabel = trimmed.endsWith(':');
-          const looksLikeHotkey = trimmed.includes('::');
-          if (!hasParenCall && !hasAssign && !looksLikeLabel && !looksLikeHotkey) {
-            // Common tell: first arg is a string or number (e.g., "text" or 1000)
-            // but we warn generally to encourage function-call form in v2
-            const leadingSpaces = line.length - line.trimStart().length;
-            const startChar = leadingSpaces + trimmed.indexOf(matchedId);
-            const endChar = startChar + matchedId.length;
-            diagnostics.push(
-              this.createDiagnostic(
-                `Use function-call syntax in v2: ${matchedId}(...)`,
-                lineIndex,
-                startChar,
-                endChar,
-                DiagnosticSeverity.Warning,
-                'semantic.v1CommandStyle'
-              )
-            );
+        if (!handled) {
+          const lead = trimmed.match(/^(?<id>[A-Za-z_]\w*)(?<sep>\s*,|\s+)(?<rest>.*)$/);
+          const id = lead?.groups?.id;
+          const sep = lead?.groups?.sep ?? '';
+          const rest = (lead?.groups?.rest ?? '').trim();
+          const isHotkeyOrLabel = trimmed.includes('::') || /^[A-Za-z_]\w*:$/.test(trimmed);
+          if (id && !keywordSet.has(id.toLowerCase()) && !isHotkeyOrLabel) {
+            const startChar = leadingSpaces + trimmed.indexOf(id);
+            if (sep.includes(',')) {
+              diagnostics.push(
+                this.createDiagnostic(
+                  `AutoHotkey v1 command syntax: "${id}, ..." is not valid in v2. Use ${id}(...)`,
+                  lineIndex,
+                  startChar,
+                  startChar + id.length,
+                  DiagnosticSeverity.Error,
+                  'semantic.v1CommandSyntax'
+                )
+              );
+            } else if (rest && !/^[=+\-*/.|&^?<>!:[{~]/.test(rest)) {
+              // `Name value` is a valid v2 call statement; parentheses are only clearer.
+              diagnostics.push(
+                this.createDiagnostic(
+                  `Command-style call; v2 accepts it, but ${id}(...) is clearer`,
+                  lineIndex,
+                  startChar,
+                  startChar + id.length,
+                  DiagnosticSeverity.Hint,
+                  'style.commandStyleCall'
+                )
+              );
+            }
           }
+        }
+      }
+
+      groupDepth = Math.max(0, groupDepth + scan.groupDelta);
+      braceDepth = Math.max(0, braceDepth + scan.braceDelta);
+      for (const scope of scopes) {
+        if (braceDepth >= scope.depth) scope.entered = true;
+      }
+      while (scopes.length > 0) {
+        const top = scopes[scopes.length - 1];
+        if (top && top.entered && braceDepth < top.depth) {
+          scopes.pop();
+        } else {
+          break;
         }
       }
     }
@@ -499,4 +525,60 @@ export class AhkDiagnosticProvider {
       source: 'ahk-server',
     };
   }
+}
+
+interface AhkLineScan {
+  /** The line with any trailing `;` comment removed. */
+  code: string;
+  /** Net change in `(` and `[` nesting, ignoring strings and comments. */
+  groupDelta: number;
+  /** Net change in `{` nesting, ignoring strings and comments. */
+  braceDelta: number;
+}
+
+/**
+ * Scan one line of AHK v2 code. Strings may use either quote, escaped with a backtick; a
+ * `;` starts a comment only at line start or after whitespace, as in AutoHotkey itself.
+ */
+function scanAhkLine(line: string): AhkLineScan {
+  let quote: string | null = null;
+  let groupDelta = 0;
+  let braceDelta = 0;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === '`') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === ';' && (i === 0 || /\s/.test(line[i - 1] ?? ''))) {
+      return { code: line.slice(0, i), groupDelta, braceDelta };
+    } else if (ch === '(' || ch === '[') groupDelta++;
+    else if (ch === ')' || ch === ']') groupDelta--;
+    else if (ch === '{') braceDelta++;
+    else if (ch === '}') braceDelta--;
+  }
+  return { code: line, groupDelta, braceDelta };
+}
+
+/** Index of the `)` matching the `(` at `openIdx`, skipping strings; -1 if unclosed. */
+function findClosingParen(text: string, openIdx: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = openIdx; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === '`') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(') depth++;
+    else if (ch === ')') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
 }

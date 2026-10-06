@@ -1,22 +1,26 @@
 # AutoHotkey v2 MCP Server
 
-A TypeScript-based MCP server providing AutoHotkey v2 development tools, code analysis, and script execution with window detection.
+A TypeScript-based MCP server providing AutoHotkey v2 development tools, code
+analysis, and script execution with window detection.
 
 ## Coding Standards
 
 ### TypeScript Conventions
+
 - Use strict mode with comprehensive type definitions
 - Zod schemas for all tool parameter validation
 - Async/await pattern for all I/O operations
 - Error handling with informative messages
 
 ### AutoHotkey v2 Patterns
+
 - All scripts must use `.ahk` extension (never `.ahv`)
 - Validate AHK paths with `endsWith('.ahk')`
 - Use AutoHotkey v2 syntax (expression-only)
 - Support both GUI and console scripts
 
 ### MCP Tool Structure
+
 ```typescript
 export const ToolArgsSchema = z.object({
   // Required parameters first
@@ -26,7 +30,9 @@ export const ToolArgsSchema = z.object({
 export const toolDefinition = {
   name: 'tool_name',
   description: 'Brief description',
-  inputSchema: { /* JSON schema */ }
+  inputSchema: {
+    /* JSON schema */
+  },
 };
 ```
 
@@ -34,7 +40,7 @@ export const toolDefinition = {
 
 ```bash
 npm run build    # Compile TypeScript to dist/
-npm run dev      # Development mode with auto-reload  
+npm run dev      # Development mode with auto-reload
 npm run clean    # Remove dist/ directory
 npm run lint     # ESLint validation
 ```
@@ -42,16 +48,19 @@ npm run lint     # ESLint validation
 ## Architecture Patterns
 
 ### Process Management
+
 - Track PIDs with `Map<number, ProcessInfo>`
 - Graceful shutdown with cleanup handlers
 - Timeout handling for long-running processes
 
 ### Window Detection
+
 - Use PowerShell queries for window state
 - Poll every 100ms with configurable timeout
 - Return window title and detection timing
 
 ### File Operations
+
 - Async file operations with proper error handling
 - Path validation and normalization
 - Cross-platform path resolution
@@ -59,24 +68,27 @@ npm run lint     # ESLint validation
 ## Common Patterns
 
 ### Error Response Format
+
 ```typescript
 return {
   content: [{ type: 'text', text: `Error: ${message}` }],
-  isError: true
+  isError: true,
 };
 ```
 
-### Success Response Format  
+### Success Response Format
+
 ```typescript
 return {
   content: [
     { type: 'text', text: 'Action completed' },
-    { type: 'text', text: JSON.stringify(data, null, 2) }
-  ]
+    { type: 'text', text: JSON.stringify(data, null, 2) },
+  ],
 };
 ```
 
 ### AutoHotkey Path Auto-Detection
+
 ```typescript
 // Check common paths first, fall back to PATH environment
 const paths = [
@@ -102,31 +114,43 @@ const paths = [
 
 ## MCP Tool Usage Guidelines
 
+### Toolsets
+
+- Only the `core` toolset is listed by default (12 tools); see README "Tools and
+  toolsets"
+- Assign every new tool a toolset in `src/core/tool-metadata.ts`; add to `core`
+  only if most sessions need it
+- `AHK_MCP_TOOLSETS=all` lists everything, including `legacy`
+- Check code with `AHK_Check` (interpreter `/Validate` > THQBY > static);
+  navigate with `AHK_Navigate`
+- Static checks must stay quiet on valid v2 code: extend the corpus in
+  `Tests/unit/static-checkers.test.ts` with any new rule
+
 ### Parameter Naming
+
 - **Use `newContent`** for replacement/insertion text in edit tools
 - **Backward compatible**: `content` parameter still works but is deprecated
 - Priority: `newContent` takes precedence when both are provided
-- Tools with `newContent`: `AHK_File_Edit`, `AHK_File_Edit_Small`, `AHK_File_Edit_Diff`
-
-### Debug Mode
-- **Enable debug visibility**: Set `debugMode: true` on orchestration tools
-- Shows orchestration decision log with timing and cache status
-- Includes: tool calls, reasons, durations, cache hits/misses
-- Output is truncated at 5,000 characters for verbose operations
-- Available on: `AHK_Smart_Orchestrator`
+- Tools with `newContent`: `AHK_File_Edit` (and the legacy
+  `AHK_File_Edit_Small`, `AHK_File_Edit_Diff`)
 
 ### Dry-Run Mode
-- **Preview changes safely**: Set `dryRun: true` to preview destructive operations
+
+- **Preview changes safely**: Set `dryRun: true` to preview destructive
+  operations
 - Shows affected files, line numbers, and change counts
 - Displays first 3 sample changes (configurable)
 - File is NOT modified when dry-run is enabled
-- Available on: All edit tools (`AHK_File_Edit`, `AHK_File_Edit_Small`, `AHK_File_Edit_Diff`, `AHK_File_Edit_Advanced`, `AHK_File_Create`)
+- Available on: All edit tools (`AHK_File_Edit`, `AHK_File_Create`, and the
+  legacy `AHK_File_Edit_Small`, `AHK_File_Edit_Diff`, `AHK_File_Edit_Advanced`);
+  `AHK_Navigate` rename previews unless `dryRun: false`
 
 ### Enhanced Tool Descriptions
+
 - All tool descriptions include concrete usage examples
 - Examples show common use cases, advanced features, and what to avoid
 - Related tools are cross-referenced with "See also" sections
 
 ---
 
-*For project status and implementation details, see docs/PROJECT_STATUS.md*
+_For project status and implementation details, see docs/PROJECT_STATUS.md_

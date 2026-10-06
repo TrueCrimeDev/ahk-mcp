@@ -140,6 +140,7 @@ debug-*.log
 
 # Test files
 test-*.ahk
+!Tests/fixtures/test-quality-improvements.ahk
 *-test.ahv
 test-output/
 
@@ -176,3 +177,9 @@ vscode-autohotkey2-lsp/
 .mcp.json
 .claude/settings.json
 .claude/settings.local.json
+
+# Task eval results (evals/run-task-evals.mjs)
+evals/results/
+
+# Claude Code agent worktrees
+.claude/worktrees/

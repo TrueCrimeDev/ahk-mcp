@@ -1,19 +1,34 @@
 # Claude Code Hooks for AHK-MCP
 
-This directory contains Claude Code hooks that enhance the AutoHotkey MCP server's behavior when used with Claude Code CLI.
+> **Active hook:** `validate-ahk.ps1` (PostToolUse on `Edit`, `Write`,
+> `MultiEdit`, `AHK_File_Edit`, `AHK_File_Create`). It runs AutoHotkey v2
+> `/Validate` on edited `.ahk` files and exits 2 on load-time errors so Claude
+> fixes them. `scripts/setup-claude-code.ps1` wires it into
+> `.claude/settings.json` from `.claude/settings.example.json`; see
+> [docs/CLAUDE_CODE_WINDOWS.md](../../docs/CLAUDE_CODE_WINDOWS.md).
+>
+> `run-after-edit.py` below is kept for reference and is **not wired**: wiring
+> both would validate and then run every edited script. Its matcher still uses
+> the old server name (`mcp__ahk_mcp__`); the server is now registered as `ahk`.
+
+This directory contains Claude Code hooks that enhance the AutoHotkey MCP
+server's behavior when used with Claude Code CLI.
 
 ## Overview
 
-Hooks are scripts that run automatically in response to events in Claude Code, such as tool completions, prompt submissions, or session starts. This project uses hooks to provide seamless integration between file editing and script execution.
+Hooks are scripts that run automatically in response to events in Claude Code,
+such as tool completions, prompt submissions, or session starts. This project
+uses hooks to provide seamless integration between file editing and script
+execution.
 
 ## Available Hooks
 
 ### `run-after-edit.py` - Auto-Run Scripts After Edit
 
-**Event:** `PostToolUse`
-**Matcher:** `mcp__ahk_mcp__AHK_File_Edit.*`
+**Event:** `PostToolUse` **Matcher:** `mcp__ahk_mcp__AHK_File_Edit.*`
 
-Automatically executes AutoHotkey v2 scripts after successful file editing operations.
+Automatically executes AutoHotkey v2 scripts after successful file editing
+operations.
 
 #### Features
 
@@ -29,8 +44,10 @@ Automatically executes AutoHotkey v2 scripts after successful file editing opera
 
 #### How It Works
 
-1. **Hook Trigger**: Claude Code calls the hook after any `AHK_File_Edit*` tool completes
-2. **Validation**: Script checks if the edit was successful and involves an .ahk file
+1. **Hook Trigger**: Claude Code calls the hook after any `AHK_File_Edit*` tool
+   completes
+2. **Validation**: Script checks if the edit was successful and involves an .ahk
+   file
 3. **Path Extraction**: Parses the file path from the tool response
 4. **AutoHotkey Execution**: Runs the script using AutoHotkey v2
 5. **Result Reporting**: Outputs success/failure to Claude Code transcript
@@ -64,25 +81,28 @@ The hook is configured in `.claude/settings.json`:
 
 Control hook behavior using environment variables:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AHK_AUTO_RUN` | `true` | Enable/disable auto-run functionality |
-| `AHK_RUN_TIMEOUT` | `30` | Script execution timeout in seconds |
-| `AHK_HOOK_VERBOSE` | `false` | Enable verbose logging for debugging |
+| Variable           | Default | Description                           |
+| ------------------ | ------- | ------------------------------------- |
+| `AHK_AUTO_RUN`     | `true`  | Enable/disable auto-run functionality |
+| `AHK_RUN_TIMEOUT`  | `30`    | Script execution timeout in seconds   |
+| `AHK_HOOK_VERBOSE` | `false` | Enable verbose logging for debugging  |
 
 **Example: Disable auto-run temporarily**
+
 ```bash
 export AHK_AUTO_RUN=false
 claude
 ```
 
 **Example: Increase timeout for long-running scripts**
+
 ```bash
 export AHK_RUN_TIMEOUT=60
 claude
 ```
 
 **Example: Enable verbose logging**
+
 ```bash
 export AHK_HOOK_VERBOSE=true
 claude --debug
@@ -93,6 +113,7 @@ claude --debug
 This hook complements the MCP server's built-in `autoRunAfterEdit` setting:
 
 **MCP Setting** (`tool-settings.json`):
+
 ```json
 {
   "autoRunAfterEdit": false
@@ -100,11 +121,13 @@ This hook complements the MCP server's built-in `autoRunAfterEdit` setting:
 ```
 
 **Hook Behavior:**
+
 - If `runAfter: false` is explicitly set in tool call → Hook **skips** execution
 - If `runAfter: true` is set in tool call → MCP tool **already runs** the script
 - If `runAfter` is omitted → Hook **provides** auto-run functionality
 
 This design gives you multiple levels of control:
+
 1. **Per-call control**: Set `runAfter` parameter on individual tool calls
 2. **Global MCP setting**: Configure `autoRunAfterEdit` in MCP settings
 3. **Per-project hook**: Enable/disable via `.claude/settings.json`
@@ -161,6 +184,7 @@ claude --debug
 ```
 
 You'll see detailed output in transcript mode (Ctrl+R):
+
 ```
 [VERBOSE] Hook event: PostToolUse
 [VERBOSE] Tool name: mcp__ahk_mcp__AHK_File_Edit
@@ -178,6 +202,7 @@ You'll see detailed output in transcript mode (Ctrl+R):
 **Problem:** The hook doesn't execute after file edits.
 
 **Solutions:**
+
 1. Check hook is registered: Run `/hooks` in Claude Code to verify
 2. Verify Python 3 is installed: `python3 --version`
 3. Ensure script is executable: `chmod +x .claude/hooks/run-after-edit.py`
@@ -189,6 +214,7 @@ You'll see detailed output in transcript mode (Ctrl+R):
 **Problem:** `Error: AutoHotkey v2 not found`
 
 **Solutions:**
+
 1. Install AutoHotkey v2 from https://autohotkey.com
 2. Add AutoHotkey to your PATH
 3. Edit the script to add custom paths to `ahk_paths` list
@@ -199,6 +225,7 @@ You'll see detailed output in transcript mode (Ctrl+R):
 **Problem:** `Script execution timed out after 30s`
 
 **Solutions:**
+
 1. Increase timeout: `export AHK_RUN_TIMEOUT=60`
 2. Check if script has infinite loops or blocking operations
 3. Use `detectWindow` in MCP tool for GUI scripts instead
@@ -209,6 +236,7 @@ You'll see detailed output in transcript mode (Ctrl+R):
 **Problem:** `⚠️ Auto-run failed: Script failed with exit code 1`
 
 **Solutions:**
+
 1. Enable verbose mode: `export AHK_HOOK_VERBOSE=true`
 2. Check the script has no syntax errors using `AHK_Diagnostics` tool
 3. Verify the script path is correct
@@ -220,6 +248,7 @@ You'll see detailed output in transcript mode (Ctrl+R):
 **Problem:** `Permission denied` when running hook script
 
 **Solutions:**
+
 1. Make script executable: `chmod +x .claude/hooks/run-after-edit.py`
 2. Check Python interpreter is accessible: `which python3`
 3. Verify file permissions in `.claude/hooks/` directory
@@ -347,6 +376,7 @@ if __name__ == '__main__':
 ## Support
 
 For issues or questions:
+
 1. Check the troubleshooting section above
 2. Review hook execution in transcript mode (Ctrl+R)
 3. Enable verbose logging with `AHK_HOOK_VERBOSE=true`
@@ -354,5 +384,4 @@ For issues or questions:
 
 ---
 
-**Last Updated:** 2025-10-02
-**Version:** 1.0.0
+**Last Updated:** 2025-10-02 **Version:** 1.0.0

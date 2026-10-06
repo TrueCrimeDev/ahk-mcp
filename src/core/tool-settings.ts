@@ -47,6 +47,12 @@ export interface ToolSettings {
   thqbyLspNodePath?: string;
 
   /**
+   * Toolsets advertised in tools/list (see core/toolsets.ts). Unset means "use
+   * AHK_MCP_TOOLSETS, else core"; AHK_Settings enable_toolset/disable_toolset set it.
+   */
+  toolsets?: string[];
+
+  /**
    * How the PostToolUse hook reacts when a UIA selector written into a .ahk file does not
    * resolve against the live window. 'warn' is deliberately the default: a selector that
    * cannot be checked because the target app is closed is not the same as a broken one.

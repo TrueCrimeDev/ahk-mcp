@@ -1,0 +1,39 @@
+{
+  "id": "rename-method",
+  "prompt": "Rename the Load method of the Store class to LoadFromDisk everywhere it is defined or called, in every file of this project. Do not rename anything else.",
+  "assert": [
+    {
+      "file": "lib/store.ahk",
+      "match": "^\\s*LoadFromDisk\\(",
+      "flags": "m",
+      "why": "method definition not renamed"
+    },
+    {
+      "file": "lib/store.ahk",
+      "notMatch": "^\\s*Load\\(",
+      "flags": "m",
+      "why": "old definition left"
+    },
+    {
+      "file": "main.ahk",
+      "notMatch": "\\.Load\\(",
+      "why": "old call left in main.ahk"
+    },
+    {
+      "file": "main.ahk",
+      "match": "\\.LoadFromDisk\\(",
+      "why": "call not renamed in main.ahk"
+    },
+    {
+      "file": "lib/report.ahk",
+      "match": "\\.LoadFromDisk\\(",
+      "why": "call not renamed in report.ahk"
+    },
+    {
+      "file": "lib/report.ahk",
+      "match": "LoadReport\\(",
+      "why": "unrelated LoadReport was renamed"
+    },
+    { "check": "main.ahk" }
+  ]
+}

@@ -92,4 +92,6 @@ export interface IToolServer {
   ahkDebugDBGpToolInstance: IExecutableTool;
   ahkEvalToolInstance: IExecutableTool;
   ahkReplResetToolInstance: IExecutableTool;
+  ahkCheckToolInstance: IExecutableTool;
+  ahkNavigateToolInstance: IExecutableTool;
 }

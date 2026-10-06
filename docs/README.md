@@ -8,6 +8,8 @@ deeper references as needed.
 
 - QUICK_START.md - Quick start setup
 - CLAUDE_DESKTOP_SETUP.md - Claude Desktop configuration
+- CLAUDE_CODE_WINDOWS.md - Claude Code on native Windows (setup script, hook,
+  toolsets, troubleshooting)
 - CLAUDE_CODE_SETUP.md - Claude Code configuration
 - CLAUDE_EXTENSION_SETUP.md - Claude Extension setup
 - SETTINGS_GUIDE.md - Server settings

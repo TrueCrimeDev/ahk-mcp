@@ -21,13 +21,14 @@ export function resolveContentParameter(args: unknown): string | undefined {
     if (args.content !== undefined) {
       logger.warn('Both "content" and "newContent" provided. Using "newContent" (recommended).');
     }
-    return args.newContent as string;
+    // Only a string is content; anything else (null, numbers, booleans) resolves to undefined.
+    return typeof args.newContent === 'string' ? args.newContent : undefined;
   }
 
   // Priority 2: Check for deprecated parameter name
   if (args.content !== undefined) {
     logger.warn('Parameter "content" is deprecated. Please use "newContent" instead.');
-    return args.content as string;
+    return typeof args.content === 'string' ? args.content : undefined;
   }
 
   // Neither provided
