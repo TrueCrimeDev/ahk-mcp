@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import readline from 'node:readline';
@@ -181,6 +182,8 @@ async function main() {
   }
 
   const listDirectory = resolveListDirectory();
+  // Isolated tool settings, so toolsets saved on this machine cannot change the surface.
+  const settingsDir = mkdtempSync(path.join(os.tmpdir(), 'ahk-smoke-'));
   const child = spawn(process.execPath, [serverPath], {
     cwd: repoRoot,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -188,6 +191,9 @@ async function main() {
       ...process.env,
       NODE_ENV: process.env.NODE_ENV || 'test',
       AHK_MCP_LOG_LEVEL: process.env.AHK_MCP_LOG_LEVEL || 'warn',
+      AHK_MCP_SETTINGS_PATH: path.join(settingsDir, 'tool-settings.json'),
+      // core is the default surface; extras adds AHK_Analytics for the MCP Apps check.
+      AHK_MCP_TOOLSETS: 'core,extras',
     },
   });
 
@@ -220,11 +226,16 @@ async function main() {
       'AHK_File_Active',
       'AHK_File_List',
       'AHK_File_View',
-      'AHK_Diagnostics',
+      'AHK_Check',
+      'AHK_Navigate',
       'AHK_Run',
+      'AHK_Analytics',
     ];
     for (const name of requiredTools) {
       assertCondition(toolNames.includes(name), `Required tool missing from tools/list: ${name}`);
+    }
+    for (const name of ['AHK_Diagnostics', 'AHK_File_Edit_Small', 'uia_tree']) {
+      assertCondition(!toolNames.includes(name), `Tool from a disabled toolset is listed: ${name}`);
     }
 
     const runTool = toolsResult.tools.find(tool => tool.name === 'AHK_Run');
@@ -295,8 +306,8 @@ async function main() {
     });
 
     const taskCreate = await client.request('tools/call', {
-      name: 'AHK_Diagnostics',
-      arguments: { code: '#Requires AutoHotkey v2.0\nMsgBox("ok")' },
+      name: 'AHK_Check',
+      arguments: { code: '#Requires AutoHotkey v2.0\nMsgBox("ok")', engines: ['static'] },
       task: { ttl: 60000 },
     });
     assertCondition(

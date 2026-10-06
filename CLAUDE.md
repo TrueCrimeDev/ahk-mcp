@@ -134,14 +134,6 @@ const paths = [
 - Tools with `newContent`: `AHK_File_Edit` (and the legacy
   `AHK_File_Edit_Small`, `AHK_File_Edit_Diff`)
 
-### Debug Mode
-
-- **Enable debug visibility**: Set `debugMode: true` on orchestration tools
-- Shows orchestration decision log with timing and cache status
-- Includes: tool calls, reasons, durations, cache hits/misses
-- Output is truncated at 5,000 characters for verbose operations
-- Available on: `AHK_Smart_Orchestrator` (`legacy` toolset)
-
 ### Dry-Run Mode
 
 - **Preview changes safely**: Set `dryRun: true` to preview destructive
