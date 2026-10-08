@@ -26,11 +26,13 @@ const operator = await tsImport('../src/core/operator-config.ts', import.meta.ur
 
 const code = text => `\`${text}\``;
 
-// Table cells cannot contain raw pipes or line breaks. Backslashes are only
-// doubled before a pipe: elsewhere they sit in code spans and render literally.
+// Table cells cannot contain raw pipes or line breaks. Double backslashes for
+// Markdown, and add an escape for any pipe they precede.
 const cell = text =>
   String(text)
-    .replace(/(\\*)\|/g, (_, slashes) => `${slashes}${slashes}\\|`)
+    .replace(/(\\*)\||\\/g, (match, slashes) =>
+      slashes === undefined ? '\\\\' : `${slashes}${slashes}\\|`
+    )
     .replace(/\s*\n\s*/g, ' ');
 
 function table(header, rows) {

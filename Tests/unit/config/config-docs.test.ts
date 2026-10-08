@@ -28,4 +28,9 @@ describe('docs/CONFIGURATION.md', () => {
       for (const alias of variable.aliases) expect(doc).toContain(`\`${alias.name}\``);
     }
   });
+
+  it('escapes backslashes in Markdown table cells', () => {
+    const doc = fs.readFileSync(DOC, 'utf8');
+    expect(doc).toContain('%APPDATA%\\\\ahk-mcp');
+  });
 });
