@@ -214,12 +214,6 @@ export class FastSyntaxChecker {
         message: 'V1 function detected. Use EnvGet() or A_Env in v2',
         rule: 'v1-env-function',
       },
-      {
-        regex: /:=/,
-        message:
-          'Assignment operator := is valid but verbose in v2. Consider using = for simple assignments',
-        rule: 'v2-assignment-style',
-      },
     ];
 
     for (const { regex, message, rule } of v1Patterns) {
